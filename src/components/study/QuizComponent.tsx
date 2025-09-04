@@ -14,7 +14,15 @@ interface Question {
   difficulty: 'Easy' | 'Medium' | 'Hard';
 }
 
-export const QuizComponent: React.FC = () => {
+interface QuizComponentProps {
+  quizData?: Record<string, any>;
+  disabled?: boolean;
+}
+
+export const QuizComponent: React.FC<QuizComponentProps> = ({
+  quizData,
+  disabled = false
+}) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -190,7 +198,7 @@ export const QuizComponent: React.FC = () => {
               <h3 className="text-lg font-medium leading-relaxed">
                 {currentQ.question}
               </h3>
-              
+
               <div className="space-y-3">
                 {currentQ.options.map((option, index) => (
                   <Button
@@ -208,7 +216,7 @@ export const QuizComponent: React.FC = () => {
               </div>
             </div>
 
-            <Button 
+            <Button
               onClick={handleNextQuestion}
               disabled={selectedAnswer === null}
               className="w-full"

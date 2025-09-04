@@ -3,12 +3,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Upload, 
-  File, 
-  FileText, 
-  Image, 
-  X, 
+import { useToast } from '@/hooks/use-toast';
+import { useProcessFiles } from '@/hooks/useApi';
+import type { LearningContent } from '@/types/api';
+import {
+  Upload,
+  File,
+  FileText,
+  Image,
+  X,
   Check,
   AlertCircle,
   Loader2,
@@ -19,6 +22,9 @@ import {
 interface FileUploadZoneProps {
   disabled?: boolean;
   onFilesUploaded?: (files: File[]) => void;
+  onContentGenerated?: (content: LearningContent) => void;
+  studentName?: string;
+  gradeLevel?: string;
 }
 
 interface UploadedFile {
@@ -29,12 +35,17 @@ interface UploadedFile {
   preview?: string;
 }
 
-export const FileUploadZone: React.FC<FileUploadZoneProps> = ({ 
-  disabled = false, 
-  onFilesUploaded 
+export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
+  disabled = false,
+  onFilesUploaded,
+  onContentGenerated,
+  studentName,
+  gradeLevel
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const { toast } = useToast();
+  const processFilesMutation = useProcessFiles();
 
   const allowedTypes = [
     'application/pdf',
@@ -94,28 +105,60 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     });
   };
 
-  const simulateUpload = async (uploadedFile: UploadedFile) => {
-    const steps = [20, 40, 60, 80, 100];
-    
-    for (const progress of steps) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      setUploadedFiles(prev => 
-        prev.map(f => 
-          f.id === uploadedFile.id 
-            ? { ...f, progress }
+  const processFiles = async (uploadedFile: UploadedFile) => {
+    try {
+      // Start processing
+      setUploadedFiles(prev =>
+        prev.map(f =>
+          f.id === uploadedFile.id
+            ? { ...f, progress: 10 }
             : f
         )
       );
-    }
 
-    // Mark as completed
-    setUploadedFiles(prev => 
-      prev.map(f => 
-        f.id === uploadedFile.id 
-          ? { ...f, status: 'completed' }
-          : f
-      )
-    );
+      const result = await processFilesMutation.mutateAsync({
+        files: [uploadedFile.file],
+        data: {
+          student_name: studentName,
+          grade_level: gradeLevel,
+        }
+      });
+
+      // Update progress during processing
+      setUploadedFiles(prev =>
+        prev.map(f =>
+          f.id === uploadedFile.id
+            ? { ...f, progress: 100, status: 'completed' }
+            : f
+        )
+      );
+
+      // If content was generated, call the callback
+      if (result.content && onContentGenerated) {
+        onContentGenerated(result.content);
+      }
+
+      toast({
+        title: "File processed successfully!",
+        description: "Study materials have been generated from your uploaded file.",
+      });
+
+    } catch (error) {
+      // Mark as error
+      setUploadedFiles(prev =>
+        prev.map(f =>
+          f.id === uploadedFile.id
+            ? { ...f, status: 'error' }
+            : f
+        )
+      );
+
+      toast({
+        title: "Processing failed",
+        description: error instanceof Error ? error.message : "Failed to process the file",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleFiles = async (files: FileList) => {
@@ -144,9 +187,9 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
 
     setUploadedFiles(prev => [...prev, ...newUploadedFiles]);
 
-    // Simulate uploads
+    // Process uploaded files
     newUploadedFiles.forEach(uploadedFile => {
-      simulateUpload(uploadedFile);
+      processFiles(uploadedFile);
     });
 
     onFilesUploaded?.(validFiles);
@@ -185,34 +228,31 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   return (
     <div className="space-y-4">
       {/* Upload Zone */}
-      <Card 
-        className={`border-2 border-dashed transition-all duration-200 ${
-          isDragging 
-            ? 'border-primary bg-primary/5 scale-105' 
-            : disabled 
-              ? 'border-muted bg-muted/5 opacity-50' 
+      <Card
+        className={`border-2 border-dashed transition-all duration-200 ${isDragging
+            ? 'border-primary bg-primary/5 scale-105'
+            : disabled
+              ? 'border-muted bg-muted/5 opacity-50'
               : 'border-muted-foreground/25 hover:border-primary/50'
-        }`}
+          }`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
         <CardContent className="p-8 text-center">
           <div className="flex flex-col items-center space-y-4">
-            <div className={`p-4 rounded-full ${
-              isDragging ? 'bg-primary/10' : 'bg-muted/20'
-            }`}>
-              <Upload className={`h-8 w-8 ${
-                isDragging ? 'text-primary' : 'text-muted-foreground'
-              }`} />
+            <div className={`p-4 rounded-full ${isDragging ? 'bg-primary/10' : 'bg-muted/20'
+              }`}>
+              <Upload className={`h-8 w-8 ${isDragging ? 'text-primary' : 'text-muted-foreground'
+                }`} />
             </div>
-            
+
             <div className="space-y-2">
               <h3 className="text-lg font-medium">
                 {isDragging ? 'Drop files here' : 'Upload study materials'}
               </h3>
               <p className="text-sm text-muted-foreground">
-                {disabled 
+                {disabled
                   ? 'Please configure your API key to upload files'
                   : 'Drag & drop files here, or click to browse'
                 }
@@ -221,8 +261,8 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
 
             {!disabled && (
               <>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => document.getElementById('file-input')?.click()}
                   className="mt-4"
                 >
@@ -254,7 +294,7 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           <h4 className="text-sm font-medium text-muted-foreground">
             Uploaded Files ({uploadedFiles.length})
           </h4>
-          
+
           {uploadedFiles.map((uploadedFile) => (
             <Card key={uploadedFile.id} className="glass-effect border-0">
               <CardContent className="p-4">
@@ -262,9 +302,9 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
                   {/* File Icon/Preview */}
                   <div className="flex-shrink-0">
                     {uploadedFile.preview ? (
-                      <img 
-                        src={uploadedFile.preview} 
-                        alt="Preview" 
+                      <img
+                        src={uploadedFile.preview}
+                        alt="Preview"
                         className="w-12 h-12 object-cover rounded-lg"
                       />
                     ) : (
@@ -285,7 +325,7 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
                           {getFileTypeLabel(uploadedFile.file.type)}
                         </Badge>
                       </div>
-                      
+
                       <div className="flex items-center space-x-2">
                         {uploadedFile.status === 'uploading' && (
                           <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -315,7 +355,7 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
                           {uploadedFile.status === 'error' && 'Error'}
                         </span>
                       </div>
-                      
+
                       {uploadedFile.status === 'uploading' && (
                         <Progress value={uploadedFile.progress} className="h-1" />
                       )}

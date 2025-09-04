@@ -4,12 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Send, 
-  Bot, 
-  User, 
-  BookOpen, 
-  Brain, 
+import { useToast } from '@/hooks/use-toast';
+import { useChatResponse } from '@/hooks/useApi';
+import {
+  Send,
+  Bot,
+  User,
+  BookOpen,
+  Brain,
   Lightbulb,
   MessageCircle,
   Copy,
@@ -39,6 +41,8 @@ export const ChatInterface: React.FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  const chatMutation = useChatResponse();
 
   const quickSuggestions = [
     "Explain photosynthesis in simple terms",
@@ -56,25 +60,8 @@ export const ChatInterface: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const simulateAIResponse = (userMessage: string): string => {
-    // Simple response simulation based on keywords
-    const message = userMessage.toLowerCase();
-    
-    if (message.includes('photosynthesis')) {
-      return "Photosynthesis is the process by which plants convert sunlight, carbon dioxide, and water into glucose and oxygen. Think of it as nature's way of capturing solar energy! The equation is: 6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂. Would you like me to explain the light-dependent and light-independent reactions in detail?";
-    } else if (message.includes('calculus') || message.includes('derivative')) {
-      return "I'd be happy to help with calculus! Derivatives represent the rate of change of a function. For example, if f(x) = x², then f'(x) = 2x. This tells us how quickly the function is changing at any point. Would you like me to generate some practice problems or explain specific derivative rules?";
-    } else if (message.includes('newton') || message.includes('physics')) {
-      return "Newton's laws are fundamental to understanding motion! Law 1: Objects at rest stay at rest unless acted upon by a force. Law 2: F = ma (force equals mass times acceleration). Law 3: For every action, there's an equal and opposite reaction. Which law would you like to explore with examples?";
-    } else if (message.includes('study plan') || message.includes('schedule')) {
-      return "Creating an effective study plan involves breaking topics into manageable chunks and using spaced repetition. I recommend: 1) Identify your learning goals, 2) Allocate time based on difficulty, 3) Include regular review sessions, 4) Use active recall techniques. What subject are you planning to study?";
-    } else {
-      return `I understand you're asking about "${userMessage}". Let me help you break this down into key concepts and provide a clear explanation. Based on your question, I recommend focusing on the fundamental principles first, then building up to more complex applications. Would you like me to create a step-by-step learning path for this topic?`;
-    }
-  };
-
   const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || chatMutation.isPending) return;
 
     const userMessage: Message = {
       id: messages.length + 1,
@@ -88,18 +75,47 @@ export const ChatInterface: React.FC = () => {
     setInputMessage('');
     setIsTyping(true);
 
-    // Simulate AI processing time
-    setTimeout(() => {
+    try {
+      const response = await chatMutation.mutateAsync({
+        message: inputMessage,
+        conversation_history: messages.map(msg => ({
+          id: msg.id.toString(),
+          content: msg.content,
+          sender: msg.sender === 'ai' ? 'assistant' : 'user',
+          timestamp: msg.timestamp.toISOString(),
+          context: msg.context,
+          type: msg.type,
+        }))
+      });
+
       const aiResponse: Message = {
         id: messages.length + 2,
-        content: simulateAIResponse(inputMessage),
+        content: response.message,
         sender: 'ai',
         timestamp: new Date(),
         type: 'explanation'
       };
+
       setMessages(prev => [...prev, aiResponse]);
+    } catch (error) {
+      toast({
+        title: "Failed to get response",
+        description: error instanceof Error ? error.message : "Something went wrong",
+        variant: "destructive",
+      });
+
+      // Add error message to chat
+      const errorMessage: Message = {
+        id: messages.length + 2,
+        content: "I'm sorry, I'm having trouble responding right now. Please try again later.",
+        sender: 'ai',
+        timestamp: new Date(),
+        type: 'text'
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -119,29 +135,27 @@ export const ChatInterface: React.FC = () => {
 
   const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
     const isUser = message.sender === 'user';
-    
+
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up`}>
         <div className={`flex items-start space-x-3 max-w-[80%] ${isUser ? 'flex-row-reverse space-x-reverse' : ''}`}>
-          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-            isUser ? 'bg-gradient-primary' : 'bg-gradient-secondary'
-          }`}>
+          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-gradient-primary' : 'bg-gradient-secondary'
+            }`}>
             {isUser ? (
               <User className="h-4 w-4 text-primary-foreground" />
             ) : (
               <Bot className="h-4 w-4 text-secondary-foreground" />
             )}
           </div>
-          
-          <div className={`rounded-lg p-4 ${
-            isUser 
-              ? 'bg-primary text-primary-foreground' 
+
+          <div className={`rounded-lg p-4 ${isUser
+              ? 'bg-primary text-primary-foreground'
               : 'glass-effect border border-border/50'
-          }`}>
+            }`}>
             <div className="text-sm leading-relaxed whitespace-pre-wrap">
               {message.content}
             </div>
-            
+
             {!isUser && (
               <div className="flex items-center space-x-2 mt-3 pt-2 border-t border-border/30">
                 <Button size="sm" variant="ghost" onClick={() => copyToClipboard(message.content)}>
@@ -188,7 +202,7 @@ export const ChatInterface: React.FC = () => {
             {messages.map((message) => (
               <MessageBubble key={message.id} message={message} />
             ))}
-            
+
             {isTyping && (
               <div className="flex justify-start mb-4">
                 <div className="flex items-start space-x-3">
@@ -243,7 +257,7 @@ export const ChatInterface: React.FC = () => {
               className="flex-1 bg-muted/20 border-border/50 focus:border-primary/50"
               disabled={isTyping}
             />
-            <Button 
+            <Button
               onClick={handleSendMessage}
               disabled={!inputMessage.trim() || isTyping}
               size="lg"

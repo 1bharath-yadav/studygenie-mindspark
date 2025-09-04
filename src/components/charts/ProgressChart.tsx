@@ -21,26 +21,37 @@ import {
 
 interface ProgressChartProps {
   detailed?: boolean;
+  progressData?: Array<{
+    subject: string;
+    progress: number;
+    color: string;
+  }>;
 }
 
-export const ProgressChart: React.FC<ProgressChartProps> = ({ detailed = false }) => {
-  // Sample data for demonstration
+export const ProgressChart: React.FC<ProgressChartProps> = ({
+  detailed = false,
+  progressData = []
+}) => {
+  // Use provided data or fallback to sample data
   const weeklyProgressData = [
-    { day: 'Mon', mathematics: 85, physics: 72, chemistry: 68, biology: 91 },
-    { day: 'Tue', mathematics: 87, physics: 75, chemistry: 70, biology: 93 },
-    { day: 'Wed', mathematics: 89, physics: 78, chemistry: 72, biology: 95 },
-    { day: 'Thu', mathematics: 91, physics: 80, chemistry: 75, biology: 97 },
-    { day: 'Fri', mathematics: 93, physics: 82, chemistry: 77, biology: 98 },
-    { day: 'Sat', mathematics: 95, physics: 85, chemistry: 80, biology: 99 },
-    { day: 'Sun', mathematics: 97, physics: 87, chemistry: 82, biology: 100 },
+    { day: 'Mon', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Tue', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Wed', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Thu', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Fri', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Sat', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
+    { day: 'Sun', mathematics: 0, physics: 0, chemistry: 0, biology: 0 },
   ];
 
-  const subjectDistribution = [
-    { name: 'Mathematics', value: 85, color: 'hsl(var(--primary))' },
-    { name: 'Physics', value: 72, color: 'hsl(var(--secondary))' },
-    { name: 'Chemistry', value: 68, color: 'hsl(var(--accent))' },
-    { name: 'Biology', value: 91, color: 'hsl(var(--success))' },
-  ];
+  const subjectDistribution = progressData.length > 0
+    ? progressData.map(item => ({
+      name: item.subject,
+      value: item.progress,
+      color: item.color
+    }))
+    : [
+      { name: 'No Data', value: 100, color: 'hsl(var(--muted))' }
+    ];
 
   const studySessionData = [
     { time: '9:00', focus: 85, efficiency: 78, retention: 92 },
@@ -88,12 +99,12 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ detailed = false }
                 <AreaChart data={weeklyProgressData}>
                   <defs>
                     <linearGradient id="colorMath" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
                     </linearGradient>
                     <linearGradient id="colorPhysics" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--secondary))" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="hsl(var(--secondary))" stopOpacity={0.1}/>
+                      <stop offset="5%" stopColor="hsl(var(--secondary))" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="hsl(var(--secondary))" stopOpacity={0.1} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -205,44 +216,40 @@ export const ProgressChart: React.FC<ProgressChartProps> = ({ detailed = false }
     );
   }
 
+  // For simple chart, show a pie chart if we have data, otherwise show empty state
+  if (progressData.length === 0) {
+    return (
+      <div className="h-64 flex items-center justify-center text-center">
+        <div>
+          <div className="text-muted-foreground mb-2">📊</div>
+          <p className="text-sm text-muted-foreground">No progress data yet</p>
+          <p className="text-xs text-muted-foreground">Upload study materials to see your analytics</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={weeklyProgressData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
-          <YAxis stroke="hsl(var(--muted-foreground))" />
+        <PieChart>
+          <Pie
+            data={subjectDistribution}
+            cx="50%"
+            cy="50%"
+            innerRadius={40}
+            outerRadius={80}
+            paddingAngle={5}
+            dataKey="value"
+            label={({ name, value }) => `${name}: ${value}%`}
+            labelLine={false}
+          >
+            {subjectDistribution.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Pie>
           <Tooltip content={<CustomTooltip />} />
-          <Line
-            type="monotone"
-            dataKey="mathematics"
-            stroke="hsl(var(--primary))"
-            strokeWidth={3}
-            dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }}
-            activeDot={{ r: 6 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="physics"
-            stroke="hsl(var(--secondary))"
-            strokeWidth={3}
-            dot={{ fill: 'hsl(var(--secondary))', strokeWidth: 2, r: 4 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="chemistry"
-            stroke="hsl(var(--accent))"
-            strokeWidth={3}
-            dot={{ fill: 'hsl(var(--accent))', strokeWidth: 2, r: 4 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="biology"
-            stroke="hsl(var(--success))"
-            strokeWidth={3}
-            dot={{ fill: 'hsl(var(--success))', strokeWidth: 2, r: 4 }}
-          />
-        </LineChart>
+        </PieChart>
       </ResponsiveContainer>
     </div>
   );

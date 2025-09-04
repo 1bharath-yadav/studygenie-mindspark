@@ -3,12 +3,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { 
-  RotateCcw, 
-  ChevronLeft, 
-  ChevronRight, 
-  Brain, 
-  CheckCircle, 
+import {
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  Brain,
+  CheckCircle,
   XCircle,
   Star,
   Shuffle
@@ -23,15 +23,23 @@ interface Flashcard {
   mastered?: boolean;
 }
 
-export const FlashcardViewer: React.FC = () => {
+interface FlashcardViewerProps {
+  flashcards?: Record<string, any>;
+  disabled?: boolean;
+}
+
+export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
+  flashcards: flashcardsData,
+  disabled = false
+}) => {
   const [currentCard, setCurrentCard] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [studiedCards, setStudiedCards] = useState<Set<number>>(new Set());
   const [masteredCards, setMasteredCards] = useState<Set<number>>(new Set());
   const [reviewCards, setReviewCards] = useState<Set<number>>(new Set());
 
-  // Sample flashcards
-  const flashcards: Flashcard[] = [
+  // Sample flashcards (fallback if no data provided)
+  const defaultFlashcards: Flashcard[] = [
     {
       id: 1,
       question: "What is the fundamental theorem of calculus?",
@@ -68,6 +76,20 @@ export const FlashcardViewer: React.FC = () => {
       subject: "Biology"
     }
   ];
+
+  // Convert provided flashcards data to the expected format or use defaults
+  const flashcards: Flashcard[] = React.useMemo(() => {
+    if (flashcardsData && typeof flashcardsData === 'object') {
+      return Object.entries(flashcardsData).map(([key, card], index) => ({
+        id: index + 1,
+        question: card.question || `Question ${index + 1}`,
+        answer: card.answer || `Answer ${index + 1}`,
+        difficulty: card.difficulty || 'Medium',
+        subject: 'Study Material'
+      }));
+    }
+    return defaultFlashcards;
+  }, [flashcardsData]);
 
   const currentCardData = flashcards[currentCard];
 
@@ -193,15 +215,14 @@ export const FlashcardViewer: React.FC = () => {
 
       {/* Main Flashcard */}
       <div className="max-w-2xl mx-auto">
-        <div 
+        <div
           className="relative h-80 cursor-pointer"
           onClick={handleFlip}
         >
-          <Card 
-            className={`absolute inset-0 glass-effect border-0 transition-all duration-500 transform-gpu ${
-              isFlipped ? 'rotate-y-180' : ''
-            }`}
-            style={{ 
+          <Card
+            className={`absolute inset-0 glass-effect border-0 transition-all duration-500 transform-gpu ${isFlipped ? 'rotate-y-180' : ''
+              }`}
+            style={{
               transformStyle: 'preserve-3d',
               backfaceVisibility: 'hidden'
             }}
@@ -217,13 +238,13 @@ export const FlashcardViewer: React.FC = () => {
                       {currentCardData.subject}
                     </Badge>
                   </div>
-                  
+
                   <div className="flex-1 flex items-center justify-center">
                     <h2 className="text-xl font-medium text-center leading-relaxed">
                       {currentCardData.question}
                     </h2>
                   </div>
-                  
+
                   <div className="flex items-center justify-center text-sm text-muted-foreground">
                     <Brain className="h-4 w-4 mr-2" />
                     Click to reveal answer
@@ -247,13 +268,13 @@ export const FlashcardViewer: React.FC = () => {
                       </Badge>
                     )}
                   </div>
-                  
+
                   <div className="flex-1 flex items-center justify-center">
                     <p className="text-base text-center leading-relaxed text-muted-foreground">
                       {currentCardData.answer}
                     </p>
                   </div>
-                  
+
                   <div className="text-center text-sm text-muted-foreground">
                     How well did you know this?
                   </div>
@@ -267,7 +288,7 @@ export const FlashcardViewer: React.FC = () => {
         <div className="mt-6 space-y-4">
           {isFlipped && (
             <div className="grid grid-cols-2 gap-4 animate-fade-in">
-              <Button 
+              <Button
                 onClick={handleNeedsReview}
                 variant="outline"
                 className="h-12 border-warning/20 hover:bg-warning/10"
@@ -275,7 +296,7 @@ export const FlashcardViewer: React.FC = () => {
                 <XCircle className="h-4 w-4 mr-2 text-warning" />
                 Need Review
               </Button>
-              <Button 
+              <Button
                 onClick={handleMastered}
                 variant="outline"
                 className="h-12 border-success/20 hover:bg-success/10"
@@ -288,7 +309,7 @@ export const FlashcardViewer: React.FC = () => {
 
           {/* Navigation */}
           <div className="flex justify-between items-center">
-            <Button 
+            <Button
               onClick={handlePrevious}
               disabled={currentCard === 0}
               variant="outline"
@@ -307,7 +328,7 @@ export const FlashcardViewer: React.FC = () => {
               </Button>
             </div>
 
-            <Button 
+            <Button
               onClick={handleNext}
               disabled={currentCard === flashcards.length - 1}
               variant="outline"

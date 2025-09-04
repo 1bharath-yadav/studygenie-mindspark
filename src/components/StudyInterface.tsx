@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,16 +12,20 @@ import { QuizComponent } from '@/components/study/QuizComponent';
 import { FlashcardViewer } from '@/components/study/FlashcardViewer';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { FileUploadZone } from '@/components/upload/FileUploadZone';
-import { 
-  Send, 
-  BookOpen, 
-  Brain, 
-  Upload, 
-  BarChart3, 
+import { IntegratedAIAssistant } from '@/components/IntegratedAIAssistant';
+import { useApiKeys, useApiKeyStatus, useCurrentUser, useDashboardAnalytics, useProgressAnalytics, useAchievements } from '@/hooks/useApi';
+import {
+  Send,
+  BookOpen,
+  Brain,
+  Upload,
+  BarChart3,
   Target,
   Trophy,
   Clock,
-  Zap
+  Zap,
+  Settings,
+  User
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -33,37 +38,42 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
   isAuthenticated = true,
   hasApiKey = true
 }) => {
-  const [prompt, setPrompt] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [learningContent, setLearningContent] = useState<any>(null);
 
-  const handleSendPrompt = async () => {
-    if (!prompt.trim()) return;
-    
-    setIsProcessing(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setIsProcessing(false);
-    setPrompt('');
-  };
+  // Get real data from APIs
+  const { data: currentUser } = useCurrentUser();
+  const { data: apiKeys } = useApiKeys();
+  const { data: apiKeyStatus } = useApiKeyStatus();
 
-  // Sample data for demonstrations
-  const progressData = [
-    { subject: 'Mathematics', progress: 85, color: 'hsl(var(--primary))' },
-    { subject: 'Physics', progress: 72, color: 'hsl(var(--secondary))' },
-    { subject: 'Chemistry', progress: 68, color: 'hsl(var(--accent))' },
-    { subject: 'Biology', progress: 91, color: 'hsl(var(--success))' },
-  ];
+  const studentName = currentUser?.name || 'Student';
+  const gradeLevel = currentUser?.grade_level || 'High School';
 
-  const achievements = [
-    { title: '7-Day Streak', icon: Trophy, color: 'text-warning' },
-    { title: 'Quiz Master', icon: Target, color: 'text-primary' },
-    { title: 'Speed Learner', icon: Zap, color: 'text-accent' },
+  // Use the dedicated status endpoint for better performance and accuracy
+  const hasActiveApiKey = apiKeyStatus?.hasActiveApiKey ||
+    (apiKeys && apiKeys.length > 0 && apiKeys.some(key => key.is_active));
+
+  // Get student ID for analytics (use email as student ID since username doesn't exist)
+  const studentId = currentUser?.email || 'demo-student';
+
+  // Get real analytics data
+  const { data: dashboardData } = useDashboardAnalytics(studentId);
+  const { data: progressAnalytics } = useProgressAnalytics(studentId);
+  const { data: achievementsData } = useAchievements(studentId);
+
+  // Use real data from API - no fallback to fake subjects
+  const progressData = (progressAnalytics as any)?.subjects || [];
+
+  const achievements = (achievementsData as any)?.achievements || [
+    { title: 'Getting Started', icon: 'Trophy', color: 'text-warning' },
+    { title: 'First Steps', icon: 'Target', color: 'text-primary' },
+    { title: 'Keep Learning', icon: 'Zap', color: 'text-accent' },
   ];
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with Theme Toggle */}
+      {/* Header with Navigation */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 lg:px-6 py-3">
           <div className="flex items-center justify-between">
@@ -76,81 +86,76 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                 <p className="text-xs text-muted-foreground">AI-Powered Learning Platform</p>
               </div>
             </div>
-            <ThemeToggle />
+
+            <div className="flex items-center space-x-3">
+              {currentUser && (
+                <div className="flex items-center space-x-2">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">{currentUser.name}</span>
+                </div>
+              )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/settings')}
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto p-4 lg:p-6">
+      <div className="w-full max-w-none px-4 lg:px-6 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[calc(100vh-120px)]">
           {/* Left Panel - Prompt Interface (33%) */}
           <div className="lg:col-span-4 space-y-4">
-            {/* Status Cards */}
-            <div className="glass-effect rounded-lg p-4">
-              <h3 className="font-semibold text-foreground mb-3">System Status</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Authentication</span>
-                  <Badge variant={isAuthenticated ? "default" : "destructive"} className="text-xs">
-                    {isAuthenticated ? "Active" : "Inactive"}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">API Access</span>
-                  <Badge variant={hasApiKey ? "default" : "secondary"} className="text-xs">
-                    {hasApiKey ? "Connected" : "Disconnected"}
-                  </Badge>
-                </div>
-              </div>
-            </div>
+            {/* API Key Warning */}
+            {!hasActiveApiKey && (
+              <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800">
+                <CardContent className="pt-6">
+                  <div className="flex items-center space-x-3">
+                    <Settings className="h-5 w-5 text-amber-600" />
+                    <div>
+                      <h3 className="font-semibold text-amber-800 dark:text-amber-200">API Key Required</h3>
+                      <p className="text-amber-700 dark:text-amber-300 text-sm">
+                        Please add an API key in settings to use AI features.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate('/settings')}
+                        className="mt-2"
+                      >
+                        Go to Settings
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-            {/* File Upload */}
-            <Card className="glass-effect border-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center space-x-2 text-base font-semibold">
-                  <Upload className="h-4 w-4 text-primary" />
-                  <span>Upload Study Materials</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <FileUploadZone disabled={!hasApiKey} />
-              </CardContent>
-            </Card>
-
-            {/* AI Assistant */}
+            {/* AI Assistant with Integrated File Upload */}
             <Card className="glass-effect border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center space-x-2 text-base font-semibold">
                   <Brain className="h-4 w-4 text-primary" />
-                  <span>AI Assistant</span>
+                  <span>AI Study Assistant</span>
                 </CardTitle>
+                <p className="text-xs text-muted-foreground">Upload files and ask questions to get personalized study materials</p>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Ask me anything about your study materials. I can create quizzes, summaries, flashcards, and answer questions..."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  className="min-h-[100px] resize-none border-border focus:border-primary focus:ring-1 focus:ring-primary"
-                  disabled={!hasApiKey}
+              <CardContent>
+                <IntegratedAIAssistant
+                  disabled={!hasActiveApiKey}
+                  onContentGenerated={setLearningContent}
+                  studentId={studentId}
+                  studentName={studentName}
+                  gradeLevel={gradeLevel}
                 />
-                <Button 
-                  onClick={handleSendPrompt}
-                  disabled={!prompt.trim() || isProcessing || !hasApiKey}
-                  className="w-full"
-                  variant="default"
-                >
-                  {isProcessing ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-foreground border-t-transparent" />
-                      <span>Processing...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2">
-                      <Send className="h-4 w-4" />
-                      <span>Send Message</span>
-                    </div>
-                  )}
-                </Button>
               </CardContent>
             </Card>
 
@@ -203,7 +208,7 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Study Time</p>
-                          <p className="text-sm font-semibold">2h 35m</p>
+                          <p className="text-sm font-semibold">{(dashboardData as any)?.study_time || '0h 0m'}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -217,7 +222,7 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Quizzes</p>
-                          <p className="text-sm font-semibold">12</p>
+                          <p className="text-sm font-semibold">{(dashboardData as any)?.quizzes_completed || 0}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -231,7 +236,7 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Streak</p>
-                          <p className="text-sm font-semibold">7 Days</p>
+                          <p className="text-sm font-semibold">{(dashboardData as any)?.study_streak || '0 Days'}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -245,7 +250,7 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Avg Score</p>
-                          <p className="text-sm font-semibold">89%</p>
+                          <p className="text-sm font-semibold">{(dashboardData as any)?.average_score || '0%'}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -262,15 +267,24 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {progressData.map((item, index) => (
-                        <div key={index} className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="font-medium">{item.subject}</span>
-                            <span className="text-muted-foreground">{item.progress}%</span>
+                      {progressData.length > 0 ? (
+                        progressData.map((item, index) => (
+                          <div key={index} className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium">{item.subject}</span>
+                              <span className="text-muted-foreground">{item.progress}%</span>
+                            </div>
+                            <Progress value={item.progress} className="h-1.5" />
                           </div>
-                          <Progress value={item.progress} className="h-1.5" />
+                        ))
+                      ) : (
+                        <div className="text-center py-6">
+                          <BookOpen className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                          <p className="text-sm text-muted-foreground">
+                            Upload study materials to see your progress
+                          </p>
                         </div>
-                      ))}
+                      )}
                     </CardContent>
                   </Card>
 
@@ -282,12 +296,16 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      {achievements.map((achievement, index) => (
-                        <div key={index} className="flex items-center space-x-3 p-2 rounded-md bg-muted/50">
-                          <achievement.icon className={`h-4 w-4 ${achievement.color}`} />
-                          <span className="text-sm font-medium">{achievement.title}</span>
-                        </div>
-                      ))}
+                      {achievements.map((achievement, index) => {
+                        const IconComponent = achievement.icon === 'Trophy' ? Trophy :
+                          achievement.icon === 'Target' ? Target : Zap;
+                        return (
+                          <div key={index} className="flex items-center space-x-3 p-2 rounded-md bg-muted/50">
+                            <IconComponent className={`h-4 w-4 ${achievement.color}`} />
+                            <span className="text-sm font-medium">{achievement.title}</span>
+                          </div>
+                        );
+                      })}
                     </CardContent>
                   </Card>
                 </div>
@@ -298,19 +316,25 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                     <CardTitle className="text-base">Learning Analytics</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ProgressChart />
+                    <ProgressChart progressData={progressData} />
                   </CardContent>
                 </Card>
               </TabsContent>
 
               {/* Quiz Tab */}
               <TabsContent value="quiz">
-                <QuizComponent />
+                <QuizComponent
+                  quizData={learningContent?.quiz}
+                  disabled={!learningContent}
+                />
               </TabsContent>
 
               {/* Flashcards Tab */}
               <TabsContent value="flashcards">
-                <FlashcardViewer />
+                <FlashcardViewer
+                  flashcards={learningContent?.flashcards}
+                  disabled={!learningContent}
+                />
               </TabsContent>
 
               {/* Chat Tab */}
@@ -325,7 +349,7 @@ export const StudyInterface: React.FC<StudyInterfaceProps> = ({
                     <CardTitle className="text-base">Detailed Analytics</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ProgressChart detailed />
+                    <ProgressChart detailed progressData={progressData} />
                   </CardContent>
                 </Card>
               </TabsContent>

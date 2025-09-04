@@ -1,7 +1,30 @@
 import { StudyInterface } from '@/components/StudyInterface';
+import LandingPage from '@/components/LandingPage';
+import { useAuth } from '@/contexts/AuthContext';
+import { useApiKeys } from '@/hooks/useApi';
 
 const Index = () => {
-  return <StudyInterface />;
+  const { isAuthenticated, isLoading } = useAuth();
+  const { data: apiKeys } = useApiKeys();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // Show landing page if not authenticated
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
+
+  // Check if user has API keys configured
+  const hasApiKey = apiKeys && apiKeys.length > 0;
+
+  // Show the main study interface if authenticated
+  return <StudyInterface isAuthenticated={isAuthenticated} hasApiKey={hasApiKey} />;
 };
 
 export default Index;
