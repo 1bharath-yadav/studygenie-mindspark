@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,17 +26,30 @@ interface Flashcard {
 interface FlashcardViewerProps {
   flashcards?: Record<string, any>;
   disabled?: boolean;
+  onSessionComplete?: (results: {
+    totalCards: number;
+    masteredCards: number;
+    timeSpent: number;
+    difficulty: string;
+  }) => void;
 }
 
 export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
   flashcards: flashcardsData,
-  disabled = false
+  disabled = false,
+  onSessionComplete
 }) => {
   const [currentCard, setCurrentCard] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [studiedCards, setStudiedCards] = useState<Set<number>>(new Set());
   const [masteredCards, setMasteredCards] = useState<Set<number>>(new Set());
   const [reviewCards, setReviewCards] = useState<Set<number>>(new Set());
+  const [startTime, setStartTime] = useState<Date | null>(null);
+
+  // Initialize start time when component mounts
+  useEffect(() => {
+    setStartTime(new Date());
+  }, []);
 
   // Sample flashcards (fallback if no data provided)
   const defaultFlashcards: Flashcard[] = [
@@ -79,14 +92,37 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
 
   // Convert provided flashcards data to the expected format or use defaults
   const flashcards: Flashcard[] = React.useMemo(() => {
-    if (flashcardsData && typeof flashcardsData === 'object') {
-      return Object.entries(flashcardsData).map(([key, card], index) => ({
-        id: index + 1,
-        question: card.question || `Question ${index + 1}`,
-        answer: card.answer || `Answer ${index + 1}`,
-        difficulty: card.difficulty || 'Medium',
-        subject: 'Study Material'
-      }));
+    if (flashcardsData) {
+      // Handle array of flashcards directly
+      if (Array.isArray(flashcardsData)) {
+        return flashcardsData.map((card, index) => ({
+          id: index + 1,
+          question: card.question || `Question ${index + 1}`,
+          answer: card.answer || `Answer ${index + 1}`,
+          difficulty: card.difficulty || 'Medium',
+          subject: card.key_concepts || 'Study Material'
+        }));
+      }
+      // Handle object with flashcards array
+      else if (typeof flashcardsData === 'object' && flashcardsData.flashcards) {
+        return flashcardsData.flashcards.map((card: any, index: number) => ({
+          id: index + 1,
+          question: card.question || `Question ${index + 1}`,
+          answer: card.answer || `Answer ${index + 1}`,
+          difficulty: card.difficulty || 'Medium',
+          subject: card.key_concepts || 'Study Material'
+        }));
+      }
+      // Handle object entries (legacy format)
+      else if (typeof flashcardsData === 'object') {
+        return Object.entries(flashcardsData).map(([key, card]: [string, any], index) => ({
+          id: index + 1,
+          question: card.question || `Question ${index + 1}`,
+          answer: card.answer || `Answer ${index + 1}`,
+          difficulty: card.difficulty || 'Medium',
+          subject: 'Study Material'
+        }));
+      }
     }
     return defaultFlashcards;
   }, [flashcardsData]);
@@ -123,6 +159,28 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
         return newSet;
       });
     }
+
+    // Check if all cards have been reviewed (either mastered or need review)
+    const newMasteredCards = new Set([...masteredCards, currentCardData.id]);
+    const totalReviewedCards = newMasteredCards.size + reviewCards.size;
+
+    if (totalReviewedCards >= flashcards.length && onSessionComplete && startTime) {
+      const timeSpent = Math.round((new Date().getTime() - startTime.getTime()) / 1000);
+      const avgDifficulty = flashcards.reduce((acc, card) => {
+        const difficultyWeight = card.difficulty === 'Easy' ? 1 : card.difficulty === 'Medium' ? 2 : 3;
+        return acc + difficultyWeight;
+      }, 0) / flashcards.length;
+
+      const difficulty = avgDifficulty <= 1.5 ? 'easy' : avgDifficulty <= 2.5 ? 'medium' : 'hard';
+
+      onSessionComplete({
+        totalCards: flashcards.length,
+        masteredCards: newMasteredCards.size,
+        timeSpent,
+        difficulty
+      });
+    }
+
     handleNext();
   };
 
@@ -135,6 +193,28 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
         return newSet;
       });
     }
+
+    // Check if all cards have been reviewed
+    const newReviewCards = new Set([...reviewCards, currentCardData.id]);
+    const totalReviewedCards = masteredCards.size + newReviewCards.size;
+
+    if (totalReviewedCards >= flashcards.length && onSessionComplete && startTime) {
+      const timeSpent = Math.round((new Date().getTime() - startTime.getTime()) / 1000);
+      const avgDifficulty = flashcards.reduce((acc, card) => {
+        const difficultyWeight = card.difficulty === 'Easy' ? 1 : card.difficulty === 'Medium' ? 2 : 3;
+        return acc + difficultyWeight;
+      }, 0) / flashcards.length;
+
+      const difficulty = avgDifficulty <= 1.5 ? 'easy' : avgDifficulty <= 2.5 ? 'medium' : 'hard';
+
+      onSessionComplete({
+        totalCards: flashcards.length,
+        masteredCards: masteredCards.size,
+        timeSpent,
+        difficulty
+      });
+    }
+
     handleNext();
   };
 
@@ -150,6 +230,7 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
     setStudiedCards(new Set());
     setMasteredCards(new Set());
     setReviewCards(new Set());
+    setStartTime(new Date());
   };
 
   const getDifficultyColor = (difficulty: string) => {

@@ -135,7 +135,31 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
 
       // If content was generated, call the callback
       if (result.content && onContentGenerated) {
-        onContentGenerated(result.content);
+        // Log the original result from backend
+        console.log('🔄 FileUploadZone received result from backend:', result);
+        console.log('🔄 Backend metadata fields:', {
+          subject_name: result.subject_name,
+          chapter_name: result.chapter_name,
+          concept_name: result.concept_name,
+          difficulty_level: result.difficulty_level,
+          estimated_study_time: result.estimated_study_time
+        });
+
+        // Combine content with metadata
+        const contentWithMetadata: LearningContent = {
+          ...result.content,
+          metadata: {
+            subject_name: result.subject_name,
+            chapter_name: result.chapter_name,
+            concept_name: result.concept_name,
+            difficulty_level: result.difficulty_level,
+            estimated_study_time: result.estimated_study_time
+          }
+        };
+
+        console.log('🔄 FileUploadZone sending to frontend:', contentWithMetadata);
+        console.log('🔄 Metadata being sent:', contentWithMetadata.metadata);
+        onContentGenerated(contentWithMetadata);
       }
 
       toast({
@@ -230,10 +254,10 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       {/* Upload Zone */}
       <Card
         className={`border-2 border-dashed transition-all duration-200 ${isDragging
-            ? 'border-primary bg-primary/5 scale-105'
-            : disabled
-              ? 'border-muted bg-muted/5 opacity-50'
-              : 'border-muted-foreground/25 hover:border-primary/50'
+          ? 'border-primary bg-primary/5 scale-105'
+          : disabled
+            ? 'border-muted bg-muted/5 opacity-50'
+            : 'border-muted-foreground/25 hover:border-primary/50'
           }`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}

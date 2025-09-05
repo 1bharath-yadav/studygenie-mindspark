@@ -217,7 +217,7 @@ export const useAuth = () => {
     };
 };
 
-// Analytics hooks
+// Analytics hooks - using the correct backend endpoints
 export const useDashboardAnalytics = (studentId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.dashboard(studentId),
@@ -269,5 +269,56 @@ export const useWeaknessAnalysis = (studentId: string) => {
         queryFn: () => apiClient.get(API_ENDPOINTS.analytics.weaknesses(studentId)),
         enabled: !!studentId,
         staleTime: 300000,
+    });
+};
+
+// Student recommendations hook
+export const useStudentRecommendations = (studentId: string) => {
+    return useQuery({
+        queryKey: ['student-recommendations', studentId],
+        queryFn: () => apiClient.get(API_ENDPOINTS.students.recommendations(studentId)),
+        enabled: !!studentId,
+        staleTime: 300000, // 5 minutes
+    });
+};
+
+// Student analytics hook (using Supabase endpoint)
+export const useStudentAnalytics = (studentId: string, days: number = 30) => {
+    return useQuery({
+        queryKey: ['student-analytics', studentId, days],
+        queryFn: () => apiClient.get(API_ENDPOINTS.students.analytics(studentId) + `?days=${days}`),
+        enabled: !!studentId,
+        staleTime: 300000, // 5 minutes
+    });
+};
+
+// Save learning activity results
+export const useSaveLearningActivity = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ studentId, activityData }: {
+            studentId: string;
+            activityData: {
+                subject_name: string;
+                concept_name: string;
+                activity_type: 'quiz_attempt' | 'flashcard_practice' | 'match_the_following';
+                correct_answers: number;
+                total_questions: number;
+                time_spent: number; // in seconds
+                difficulty_level: 'Easy' | 'Medium' | 'Hard';
+                chapter_name?: string;
+            }
+        }) =>
+            apiClient.post(API_ENDPOINTS.students.saveLearningActivity(studentId), activityData),
+        onSuccess: (_, { studentId }) => {
+            // Invalidate all analytics queries for this student
+            queryClient.invalidateQueries({ queryKey: ['analytics', 'dashboard', studentId] });
+            queryClient.invalidateQueries({ queryKey: ['analytics', 'progress', studentId] });
+            queryClient.invalidateQueries({ queryKey: ['analytics', 'weekly-trends', studentId] });
+            queryClient.invalidateQueries({ queryKey: ['analytics', 'weaknesses', studentId] });
+            queryClient.invalidateQueries({ queryKey: ['student-recommendations', studentId] });
+            queryClient.invalidateQueries({ queryKey: ['student-analytics', studentId] });
+        },
     });
 };

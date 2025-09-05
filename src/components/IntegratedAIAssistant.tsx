@@ -21,6 +21,7 @@ interface IntegratedAIAssistantProps {
     studentId?: string;
     studentName?: string;
     gradeLevel?: string;
+    selectedContentTypes?: string[];
 }
 
 interface UploadedFile {
@@ -36,7 +37,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     onContentGenerated,
     studentId = 'demo-student',
     studentName = 'Student',
-    gradeLevel = 'High School'
+    gradeLevel = 'High School',
+    selectedContentTypes = []
 }) => {
     const [prompt, setPrompt] = useState('');
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -149,16 +151,41 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         }
 
         try {
+            // Build the user query with selected content types
+            let userQuery = prompt.trim() || 'Please analyze these files and create study materials';
+
+            if (selectedContentTypes.length > 0) {
+                const contentTypeNames = selectedContentTypes.map(type => {
+                    switch (type) {
+                        case 'flashcards': return 'flashcards';
+                        case 'quiz': return 'quiz questions';
+                        case 'match_the_following': return 'match the following exercise';
+                        default: return type;
+                    }
+                });
+                userQuery += `. Please specifically create: ${contentTypeNames.join(', ')}.`;
+            }
+
+            console.log('Sending user query:', userQuery); // Debug log
+
             const result = await processFilesMutation.mutateAsync({
                 files: uploadedFiles.map(f => f.file),
                 data: {
                     student_id: studentId,
-                    user_query: prompt.trim() || 'Please analyze these files and create study materials'
+                    user_query: userQuery
                 }
             });
 
+            console.log('📤 Received result from API:', result);
+            console.log('📤 Result type:', typeof result);
+            console.log('📤 Result keys:', result ? Object.keys(result) : 'null/undefined');
+
             if (result && onContentGenerated) {
+                console.log('📤 Calling onContentGenerated with result:', result);
                 onContentGenerated(result);
+                console.log('📤 onContentGenerated callback completed');
+            } else {
+                console.log('📤 NOT calling onContentGenerated - result:', !!result, 'callback:', !!onContentGenerated);
             }
 
             // Clear form after successful submission
@@ -190,8 +217,9 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     placeholder="Ask me anything about your study materials or upload files to get started. I can create quizzes, summaries, flashcards, and answer questions..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    className="min-h-[100px] resize-none border-border focus:border-primary focus:ring-1 focus:ring-primary"
+                    className="min-h-[120px] resize-y border-border focus:border-primary focus:ring-1 focus:ring-primary"
                     disabled={disabled || isProcessing}
+                    rows={4}
                 />
 
                 {/* File upload area */}

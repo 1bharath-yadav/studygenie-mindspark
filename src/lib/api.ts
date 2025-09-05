@@ -139,6 +139,9 @@ export const API_ENDPOINTS = {
         update: (id: string) => `/api/students/${id}`,
         delete: (id: string) => `/api/students/${id}`,
         progress: (id: string) => `/api/students/${id}/progress`,
+        recommendations: (id: string) => `/api/students/${id}/recommendations`,
+        analytics: (id: string) => `/api/students/${id}/analytics`,
+        saveLearningActivity: (id: string) => `/api/students/${id}/learning-activity`,
     },
 
     // User profile

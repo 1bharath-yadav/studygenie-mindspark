@@ -82,12 +82,20 @@ export interface QuizData {
 }
 
 export interface LearningContent {
-    flashcards: Record<string, FlashcardData>;
-    quiz: Record<string, QuizData>;
-    summary: string;
-    learning_objectives: string[];
+    flashcards?: FlashcardData[] | Record<string, FlashcardData>;
+    quiz?: QuizData[] | Record<string, QuizData>;
+    match_the_following?: any;
+    summary?: string;
+    learning_objectives?: string[];
     estimated_study_time?: number;
     difficulty_level?: 'Beginner' | 'Intermediate' | 'Advanced';
+    metadata?: {
+        subject_name?: string;
+        chapter_name?: string;
+        concept_name?: string;
+        difficulty_level?: string;
+        estimated_study_time?: string;
+    };
 }
 
 // File processing types
@@ -105,6 +113,12 @@ export interface ProcessFilesResponse {
     status: 'processing' | 'completed' | 'failed';
     content?: LearningContent;
     error?: string;
+    metadata?: Record<string, any>;
+    subject_name?: string;
+    chapter_name?: string;
+    concept_name?: string;
+    difficulty_level?: string;
+    estimated_study_time?: string;
 }
 
 // Chat types

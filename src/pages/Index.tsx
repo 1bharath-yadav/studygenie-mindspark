@@ -1,4 +1,4 @@
-import { StudyInterface } from '@/components/StudyInterface';
+import { NewStudyInterface } from '@/components/NewStudyInterface';
 import LandingPage from '@/components/LandingPage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useApiKeys } from '@/hooks/useApi';
@@ -23,8 +23,8 @@ const Index = () => {
   // Check if user has API keys configured
   const hasApiKey = apiKeys && apiKeys.length > 0;
 
-  // Show the main study interface if authenticated
-  return <StudyInterface isAuthenticated={isAuthenticated} hasApiKey={hasApiKey} />;
+  // Show the new study interface if authenticated
+  return <NewStudyInterface isAuthenticated={isAuthenticated} hasApiKey={hasApiKey} />;
 };
 
 export default Index;

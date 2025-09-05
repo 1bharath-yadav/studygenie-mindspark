@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,11 +17,18 @@ interface Question {
 interface QuizComponentProps {
   quizData?: Record<string, any>;
   disabled?: boolean;
+  onQuizComplete?: (results: {
+    score: number;
+    totalQuestions: number;
+    timeSpent: number;
+    difficulty: string;
+  }) => void;
 }
 
 export const QuizComponent: React.FC<QuizComponentProps> = ({
   quizData,
-  disabled = false
+  disabled = false,
+  onQuizComplete
 }) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -29,9 +36,15 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [startTime, setStartTime] = useState<Date | null>(null);
 
-  // Sample quiz questions
-  const questions: Question[] = [
+  // Initialize start time when component mounts
+  useEffect(() => {
+    setStartTime(new Date());
+  }, []);
+
+  // Sample quiz questions (fallback)
+  const defaultQuestions: Question[] = [
     {
       id: 1,
       question: "What is the derivative of x² with respect to x?",
@@ -66,6 +79,26 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
     }
   ];
 
+  // Process quiz data from API or use defaults
+  const questions: Question[] = React.useMemo(() => {
+    console.log('🧩 QuizComponent processing quizData:', quizData);
+
+    if (quizData && Array.isArray(quizData) && quizData.length > 0) {
+      console.log('🧩 Using API quiz data:', quizData.length, 'questions');
+      return quizData.map((q: any, index: number) => ({
+        id: index + 1,
+        question: q.question || `Question ${index + 1}`,
+        options: q.options || [],
+        correctAnswer: q.options ? q.options.findIndex((opt: string) => opt === q.correct_answer) : 0,
+        explanation: q.explanation || 'No explanation provided',
+        difficulty: q.difficulty || 'Medium'
+      }));
+    }
+
+    console.log('🧩 Using default quiz questions');
+    return defaultQuestions;
+  }, [quizData]);
+
   const handleAnswerSelect = (answerIndex: number) => {
     setSelectedAnswer(answerIndex);
   };
@@ -87,6 +120,24 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
       setTimeLeft(30);
     } else {
       setQuizCompleted(true);
+
+      // Calculate time spent and call completion callback
+      if (onQuizComplete && startTime) {
+        const timeSpent = Math.round((new Date().getTime() - startTime.getTime()) / 1000);
+        const avgDifficulty = questions.reduce((acc, q) => {
+          const difficultyWeight = q.difficulty === 'Easy' ? 1 : q.difficulty === 'Medium' ? 2 : 3;
+          return acc + difficultyWeight;
+        }, 0) / questions.length;
+
+        const difficulty = avgDifficulty <= 1.5 ? 'easy' : avgDifficulty <= 2.5 ? 'medium' : 'hard';
+
+        onQuizComplete({
+          score,
+          totalQuestions: questions.length,
+          timeSpent,
+          difficulty
+        });
+      }
     }
   };
 
@@ -97,6 +148,7 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
     setScore(0);
     setTimeLeft(30);
     setQuizCompleted(false);
+    setStartTime(new Date());
   };
 
   const getDifficultyColor = (difficulty: string) => {
