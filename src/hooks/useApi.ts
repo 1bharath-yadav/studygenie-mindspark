@@ -9,13 +9,29 @@ import type {
     ProcessFilesResponse,
     ChatRequest,
     ChatResponse,
-    ApiKey,
-    CreateApiKeyRequest,
+    ApiKeyData,
+    ApiKeyCreate,
+    ApiKeyResponse,
+    ProviderStatus,
     HealthCheck,
     LearningContent,
+    DashboardAnalytics,
+    SubjectAnalytics,
+    WeeklyTrends,
+    AchievementsData,
+    WeaknessAnalysis,
+    StudyPatterns,
+    AuthCredentials,
+    SignUpData,
+    SupabaseAuthResponse,
+    LLMProvider,
+    LLMModel,
+    ModelPreference,
+    ModelPreferenceCreate,
+    ModelPreferenceUpdate,
 } from '@/types/api';
 
-// Query keys for React Query
+// Query keys for React Query (updated for new structure)
 export const QUERY_KEYS = {
     health: ['health'],
     user: ['user'],
@@ -23,12 +39,18 @@ export const QUERY_KEYS = {
     student: (id: string) => ['student', id],
     studentProgress: (id: string) => ['student-progress', id],
     apiKeys: ['api-keys'],
+    providers: ['providers'],
+    models: ['models'],
+    modelsByProvider: (providerId: string) => ['models', 'provider', providerId],
+    modelsByType: (type: string) => ['models', 'type', type],
+    modelPreferences: ['model-preferences'],
     analytics: {
-        dashboard: (studentId: string) => ['analytics', 'dashboard', studentId],
-        progress: (studentId: string) => ['analytics', 'progress', studentId],
-        weeklyTrends: (studentId: string) => ['analytics', 'weekly-trends', studentId],
+        dashboard: (studentId: string, days?: number) => ['analytics', 'dashboard', studentId, days],
+        subjects: (studentId: string, days?: number) => ['analytics', 'subjects', studentId, days],
+        progress: (studentId: string, subjectId?: number) => ['analytics', 'progress', studentId, subjectId],
+        weeklyTrends: (studentId: string, weeks?: number) => ['analytics', 'weekly-trends', studentId, weeks],
         achievements: (studentId: string) => ['analytics', 'achievements', studentId],
-        studyPatterns: (studentId: string) => ['analytics', 'study-patterns', studentId],
+        studyPatterns: (studentId: string, days?: number) => ['analytics', 'study-patterns', studentId, days],
         weaknesses: (studentId: string) => ['analytics', 'weaknesses', studentId],
     },
 } as const;
@@ -42,16 +64,47 @@ export const useHealthCheck = () => {
     });
 };
 
-// Authentication hooks
-export const useCurrentUser = () => {
+// Authentication hooks (updated for Supabase JWT)
+export const useCurrentUser = (options?: { enabled?: boolean }) => {
     return useQuery({
         queryKey: QUERY_KEYS.user,
         queryFn: () => apiClient.get<User>(API_ENDPOINTS.auth.me),
         retry: false,
-        staleTime: 300000, // 5 minutes
+        enabled: options?.enabled !== false,
     });
 };
 
+// Sign up mutation
+export const useSignUp = () => {
+    return useMutation({
+        mutationFn: (data: SignUpData) =>
+            apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signUp, data),
+    });
+};
+
+// Sign in mutation
+export const useSignIn = () => {
+    return useMutation({
+        mutationFn: (data: AuthCredentials) =>
+            apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signIn, data),
+    });
+};
+
+// Sign out mutation
+export const useSignOut = () => {
+    return useMutation({
+        mutationFn: () => apiClient.post(API_ENDPOINTS.auth.signOut),
+    });
+};
+
+// Refresh token mutation
+export const useRefreshToken = () => {
+    return useMutation({
+        mutationFn: () => apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.refresh),
+    });
+};
+
+// User profile hooks
 export const useUpdateUserProfile = () => {
     const queryClient = useQueryClient();
 
@@ -157,18 +210,20 @@ export const useChatResponse = () => {
     });
 };
 
-// API Keys hooks
-export const useApiKeys = () => {
+// API Keys hooks (updated for new functional structure)
+export const useApiKeys = (options?: { enabled?: boolean }) => {
     return useQuery({
         queryKey: QUERY_KEYS.apiKeys,
-        queryFn: () => apiClient.get<ApiKey[]>(API_ENDPOINTS.apiKeys.list),
+        queryFn: () => apiClient.get<ApiKeyResponse[]>(API_ENDPOINTS.apiKeys.list),
+        enabled: options?.enabled ?? true,
     });
 };
 
-export const useApiKeyStatus = () => {
+export const useApiKeyStatus = (provider: string) => {
     return useQuery({
-        queryKey: ['apiKeyStatus'],
-        queryFn: () => apiClient.get<{ hasActiveApiKey: boolean }>(API_ENDPOINTS.apiKeys.status),
+        queryKey: ['apiKeyStatus', provider],
+        queryFn: () => apiClient.get<ProviderStatus>(API_ENDPOINTS.apiKeys.status(provider)),
+        enabled: !!provider,
     });
 };
 
@@ -176,8 +231,8 @@ export const useCreateApiKey = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: (data: CreateApiKeyRequest) =>
-            apiClient.post<ApiKey>(API_ENDPOINTS.apiKeys.create, data),
+        mutationFn: (data: ApiKeyCreate) =>
+            apiClient.post<ApiKeyResponse>(API_ENDPOINTS.apiKeys.create, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.apiKeys });
         },
@@ -196,50 +251,131 @@ export const useDeleteApiKey = () => {
     });
 };
 
-// Authentication actions
-export const useAuth = () => {
-    const queryClient = useQueryClient();
-
-    const login = () => {
-        window.location.href = `${apiClient['baseURL']}${API_ENDPOINTS.auth.login}`;
-    };
-
-    const logout = () => {
-        apiClient.clearToken();
-        queryClient.clear();
-        // Redirect to login or home page
-        window.location.href = '/';
-    };
-
-    return {
-        login,
-        logout,
-    };
+// LLM Providers hooks (new)
+export const useLLMProviders = () => {
+    return useQuery({
+        queryKey: QUERY_KEYS.providers,
+        queryFn: () => apiClient.get<LLMProvider[]>(API_ENDPOINTS.providers.list),
+        staleTime: 300000, // 5 minutes
+    });
 };
 
-// Analytics hooks - using the correct backend endpoints
-export const useDashboardAnalytics = (studentId: string) => {
+// Models hooks (new)
+export const useModels = () => {
     return useQuery({
-        queryKey: QUERY_KEYS.analytics.dashboard(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.dashboard(studentId)),
+        queryKey: QUERY_KEYS.models,
+        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.list),
+        staleTime: 300000, // 5 minutes
+    });
+};
+
+export const useModelsByProvider = (providerId: string) => {
+    return useQuery({
+        queryKey: QUERY_KEYS.modelsByProvider(providerId),
+        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.byProvider(providerId)),
+        enabled: !!providerId,
+        staleTime: 300000,
+    });
+};
+
+export const useModelsByType = (type: string) => {
+    return useQuery({
+        queryKey: QUERY_KEYS.modelsByType(type),
+        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.byType(type)),
+        enabled: !!type,
+        staleTime: 300000,
+    });
+};
+
+// Model Preferences hooks (new)
+export const useModelPreferences = () => {
+    return useQuery({
+        queryKey: QUERY_KEYS.modelPreferences,
+        queryFn: () => apiClient.get<ModelPreference[]>(API_ENDPOINTS.modelPreferences.list),
+        staleTime: 60000, // 1 minute
+    });
+};
+
+export const useCreateModelPreference = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (data: ModelPreferenceCreate) =>
+            apiClient.post<ModelPreference>(API_ENDPOINTS.modelPreferences.create, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
+        },
+    });
+};
+
+export const useUpdateModelPreference = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: ModelPreferenceUpdate }) =>
+            apiClient.put<ModelPreference>(API_ENDPOINTS.modelPreferences.update(id), data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
+        },
+    });
+};
+
+export const useDeleteModelPreference = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) =>
+            apiClient.delete(API_ENDPOINTS.modelPreferences.delete(id)),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
+        },
+    });
+};
+
+export const useSetDefaultModel = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ modelId, useCase }: { modelId: string; useCase: string }) =>
+            apiClient.post(API_ENDPOINTS.modelPreferences.setDefault(modelId, useCase)),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
+        },
+    });
+};
+
+// Analytics hooks (updated for new comprehensive analytics system)
+export const useDashboardAnalytics = (studentId: string, days: number = 30) => {
+    return useQuery({
+        queryKey: QUERY_KEYS.analytics.dashboard(studentId, days),
+        queryFn: () => apiClient.get<DashboardAnalytics>(API_ENDPOINTS.analytics.dashboard(studentId, days)),
         enabled: !!studentId,
         staleTime: 60000, // 1 minute
     });
 };
 
-export const useProgressAnalytics = (studentId: string) => {
+export const useSubjectAnalytics = (studentId: string, days: number = 30) => {
     return useQuery({
-        queryKey: QUERY_KEYS.analytics.progress(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.progress(studentId)),
+        queryKey: QUERY_KEYS.analytics.subjects(studentId, days),
+        queryFn: () => apiClient.get<SubjectAnalytics>(API_ENDPOINTS.analytics.subjects(studentId, days)),
         enabled: !!studentId,
         staleTime: 60000,
     });
 };
 
-export const useWeeklyTrends = (studentId: string) => {
+export const useProgressAnalytics = (studentId: string, subjectId?: number) => {
     return useQuery({
-        queryKey: QUERY_KEYS.analytics.weeklyTrends(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.weeklyTrends(studentId)),
+        queryKey: QUERY_KEYS.analytics.progress(studentId, subjectId),
+        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.progress(studentId, subjectId)),
+        enabled: !!studentId,
+        staleTime: 60000,
+    });
+};
+
+export const useWeeklyTrends = (studentId: string, weeks: number = 4) => {
+    return useQuery({
+        queryKey: QUERY_KEYS.analytics.weeklyTrends(studentId, weeks),
+        queryFn: () => apiClient.get<WeeklyTrends>(API_ENDPOINTS.analytics.weeklyTrends(studentId, weeks)),
         enabled: !!studentId,
         staleTime: 300000, // 5 minutes
     });
@@ -248,16 +384,16 @@ export const useWeeklyTrends = (studentId: string) => {
 export const useAchievements = (studentId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.achievements(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.achievements(studentId)),
+        queryFn: () => apiClient.get<AchievementsData>(API_ENDPOINTS.analytics.achievements(studentId)),
         enabled: !!studentId,
         staleTime: 300000,
     });
 };
 
-export const useStudyPatterns = (studentId: string) => {
+export const useStudyPatterns = (studentId: string, days: number = 30) => {
     return useQuery({
-        queryKey: QUERY_KEYS.analytics.studyPatterns(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.studyPatterns(studentId)),
+        queryKey: QUERY_KEYS.analytics.studyPatterns(studentId, days),
+        queryFn: () => apiClient.get<StudyPatterns>(API_ENDPOINTS.analytics.studyPatterns(studentId, days)),
         enabled: !!studentId,
         staleTime: 600000, // 10 minutes
     });
@@ -266,7 +402,7 @@ export const useStudyPatterns = (studentId: string) => {
 export const useWeaknessAnalysis = (studentId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.weaknesses(studentId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.weaknesses(studentId)),
+        queryFn: () => apiClient.get<WeaknessAnalysis>(API_ENDPOINTS.analytics.weaknesses(studentId)),
         enabled: !!studentId,
         staleTime: 300000,
     });
@@ -321,4 +457,46 @@ export const useSaveLearningActivity = () => {
             queryClient.invalidateQueries({ queryKey: ['student-analytics', studentId] });
         },
     });
+};
+
+// Authentication actions (updated for Supabase)
+export const useAuth = () => {
+    const queryClient = useQueryClient();
+
+    const login = (credentials?: AuthCredentials) => {
+        if (credentials) {
+            // Use sign-in API endpoint for programmatic login
+            return apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signIn, credentials);
+        } else {
+            // Redirect to OAuth login (if using OAuth flow)
+            const redirectUrl = `${apiClient['baseURL']}${API_ENDPOINTS.auth.signIn}`;
+            console.log('Redirecting to OAuth login:', redirectUrl);
+            window.location.href = redirectUrl;
+        }
+    };
+
+    const logout = async () => {
+        try {
+            // Call sign-out endpoint
+            await apiClient.post(API_ENDPOINTS.auth.signOut);
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
+            // Clear local state regardless of API call success
+            apiClient.clearToken();
+            queryClient.clear();
+            // Redirect to login or home page
+            window.location.href = '/';
+        }
+    };
+
+    const signup = (data: SignUpData) => {
+        return apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signUp, data);
+    };
+
+    return {
+        login,
+        logout,
+        signup,
+    };
 };

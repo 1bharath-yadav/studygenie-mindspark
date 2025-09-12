@@ -1,14 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
-import { useCurrentUser } from '@/hooks/useApi';
-import type { User } from '@/types/api';
+import { useCurrentUser, useAuth as useAuthActions } from '@/hooks/useApi';
+import type { User, AuthCredentials, SignUpData } from '@/types/api';
 
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
     isAuthenticated: boolean;
-    login: () => void;
-    logout: () => void;
+    login: (credentials?: AuthCredentials) => Promise<any> | void;
+    logout: () => Promise<void>;
+    signup: (data: SignUpData) => Promise<any>;
     token: string | null;
 }
 
@@ -32,14 +33,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     );
     const [initialTokenCheck, setInitialTokenCheck] = useState(false);
 
-    const { data: user, isLoading, error, refetch } = useCurrentUser();
+    const { data: user, isLoading, error, refetch } = useCurrentUser({ 
+        enabled: initialTokenCheck 
+    });
+    const authActions = useAuthActions();
 
     const isAuthenticated = !!user && !!token && !error;
+
+    // Debug authentication state
+    useEffect(() => {
+        console.log('AuthContext state update:', {
+            hasUser: !!user,
+            hasToken: !!token,
+            hasError: !!error,
+            isAuthenticated,
+            initialTokenCheck,
+            isLoading,
+            error: error?.message
+        });
+    }, [user, token, error, isAuthenticated, initialTokenCheck, isLoading]);
 
     useEffect(() => {
         // Check if we have a token in URL (from OAuth callback)
         const urlParams = new URLSearchParams(window.location.search);
         const tokenFromUrl = urlParams.get('token');
+
+        console.log('AuthContext: Checking for token in URL...', {
+            currentUrl: window.location.href,
+            hasToken: !!tokenFromUrl,
+            tokenLength: tokenFromUrl?.length || 0
+        });
 
         if (tokenFromUrl) {
             console.log('Found token in URL, storing and setting up auth...');
@@ -49,31 +72,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
             // Clean up URL
             window.history.replaceState({}, document.title, window.location.pathname);
-
-            // Trigger a refetch of user data
+            
+            // Force refetch user data after token is set
             setTimeout(() => {
+                console.log('Refetching user data after token setup...');
                 refetch();
             }, 100);
         }
+
         setInitialTokenCheck(true);
-    }, [refetch]);
+    }, []);
 
     useEffect(() => {
         if (token) {
             apiClient.setToken(token);
-            localStorage.setItem('authToken', token);
-        } else {
-            apiClient.clearToken();
-            localStorage.removeItem('authToken');
         }
     }, [token]);
 
-    // Handle authentication errors (401/403)
     useEffect(() => {
-        if (error && initialTokenCheck && token) {
-            const errorMessage = error.message || '';
-            if (errorMessage.includes('401') || errorMessage.includes('403') || errorMessage.includes('unauthorized')) {
-                console.log('Authentication error detected, clearing token');
+        // Clear token if user fetch failed with auth error
+        if (error && token && initialTokenCheck) {
+            console.log('User fetch failed, clearing token...');
+            if (error.message?.includes('401') || error.message?.includes('403')) {
                 setToken(null);
                 apiClient.clearToken();
                 localStorage.removeItem('authToken');
@@ -81,18 +101,63 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     }, [error, initialTokenCheck, token]);
 
-    const login = () => {
-        console.log('Redirecting to login...');
-        window.location.href = `${apiClient['baseURL']}/api/auth/login`;
+    // Enhanced login function that accepts credentials
+    const login = async (credentials?: AuthCredentials) => {
+        if (credentials) {
+            try {
+                const response = await authActions.login(credentials);
+                if (response && response.access_token) {
+                    setToken(response.access_token);
+                    localStorage.setItem('authToken', response.access_token);
+                    apiClient.setToken(response.access_token);
+                    // Refetch user data
+                    await refetch();
+                    return response;
+                }
+            } catch (error) {
+                console.error('Login failed:', error);
+                throw error;
+            }
+        } else {
+            // Redirect-based login for OAuth
+            console.log('Redirecting to login...');
+            authActions.login();
+        }
     };
 
-    const logout = () => {
+    // Enhanced logout function
+    const logout = async () => {
         console.log('Logging out...');
+        try {
+            await authActions.logout();
+        } catch (error) {
+            console.error('Logout error:', error);
+            // Continue with local logout even if API call fails
+        }
+        
         setToken(null);
         apiClient.clearToken();
         localStorage.removeItem('authToken');
-        // Redirect to home page
-        window.location.href = '/';
+        // The authActions.logout() already handles redirect
+    };
+
+    // Signup function
+    const signup = async (data: SignUpData) => {
+        try {
+            const response = await authActions.signup(data);
+            if (response && response.access_token) {
+                setToken(response.access_token);
+                localStorage.setItem('authToken', response.access_token);
+                apiClient.setToken(response.access_token);
+                // Refetch user data
+                await refetch();
+                return response;
+            }
+            return response;
+        } catch (error) {
+            console.error('Signup failed:', error);
+            throw error;
+        }
     };
 
     return (
@@ -103,6 +168,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 isAuthenticated,
                 login,
                 logout,
+                signup,
                 token,
             }}
         >

@@ -16,7 +16,13 @@ import {
     useHealthCheck,
     useCurrentUser,
     useUpdateUserProfile,
-    useDeleteUserProfile
+    useDeleteUserProfile,
+    useLLMProviders,
+    useModels,
+    useModelPreferences,
+    useCreateModelPreference,
+    useUpdateModelPreference,
+    useSetDefaultModel
 } from '@/hooks/useApi';
 import {
     Settings,
@@ -31,9 +37,11 @@ import {
     AlertCircle,
     CheckCircle,
     Clock,
-    Server
+    Server,
+    Brain,
+    Cpu
 } from 'lucide-react';
-import type { CreateApiKeyRequest } from '@/types/api';
+import type { ApiKeyCreate } from '@/types/api';
 
 const SettingsPage: React.FC = () => {
     const { user, logout } = useAuth();
@@ -43,10 +51,17 @@ const SettingsPage: React.FC = () => {
     const { data: apiKeys, isLoading: apiKeysLoading, refetch: refetchApiKeys } = useApiKeys();
     const { data: healthData, isLoading: healthLoading } = useHealthCheck();
     const { data: currentUser } = useCurrentUser();
+    const { data: providers, isLoading: providersLoading } = useLLMProviders();
+    const { data: models, isLoading: modelsLoading } = useModels();
+    const { data: modelPreferences, isLoading: preferencesLoading } = useModelPreferences();
+    
     const createApiKeyMutation = useCreateApiKey();
     const deleteApiKeyMutation = useDeleteApiKey();
     const updateProfileMutation = useUpdateUserProfile();
     const deleteProfileMutation = useDeleteUserProfile();
+    const createModelPreferenceMutation = useCreateModelPreference();
+    const updateModelPreferenceMutation = useUpdateModelPreference();
+    const setDefaultModelMutation = useSetDefaultModel();
 
     // Form states
     const [profileForm, setProfileForm] = useState({
@@ -59,7 +74,7 @@ const SettingsPage: React.FC = () => {
 
     const [apiKeyForm, setApiKeyForm] = useState({
         name: '',
-        service: 'gemini' as 'gemini' | 'openai' | 'anthropic',
+        provider_id: '',
         key: ''
     });
 
@@ -111,34 +126,40 @@ const SettingsPage: React.FC = () => {
     };
 
     const handleApiKeyCreate = async () => {
-        if (!apiKeyForm.name || !apiKeyForm.key) {
-            toast({
-                title: "Missing information",
-                description: "Please provide both name and API key",
-                variant: "destructive",
-            });
-            return;
-        }
+    if (!apiKeyForm.name || !apiKeyForm.key || !apiKeyForm.provider_id) {
+        toast({
+            title: "Missing information",
+            description: "Please provide name, provider, and API key",
+            variant: "destructive",
+        });
+        return;
+    }
 
-        try {
-            await createApiKeyMutation.mutateAsync(apiKeyForm);
-            setApiKeyForm({ name: '', service: 'gemini', key: '' });
-            setIsFirstTime(false);
-            refetchApiKeys();
+    try {
+        // Transform the form data to match backend format
+        const apiKeyData: ApiKeyCreate = {
+            name: apiKeyForm.name, // Add name field
+            provider_id: apiKeyForm.provider_id,
+            api_key: apiKeyForm.key
+        };
+        
+        await createApiKeyMutation.mutateAsync(apiKeyData);
+        setApiKeyForm({ name: '', provider_id: '', key: '' });
+        setIsFirstTime(false);
+        refetchApiKeys();
 
-            toast({
-                title: "API key added successfully",
-                description: "Your API key has been securely stored.",
-            });
-        } catch (error) {
-            toast({
-                title: "Failed to add API key",
-                description: error instanceof Error ? error.message : "Something went wrong",
-                variant: "destructive",
-            });
-        }
+        toast({
+            title: "API key added successfully",
+            description: "Your API key has been securely stored.",
+        });
+    } catch (error) {
+        toast({
+            title: "Failed to add API key",
+            description: error instanceof Error ? error.message : "Something went wrong",
+            variant: "destructive",
+        });
+    }
     };
-
     const handleApiKeyDelete = async (id: string) => {
         try {
             await deleteApiKeyMutation.mutateAsync(id);
@@ -389,17 +410,24 @@ const SettingsPage: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="apiKeyService">Service</Label>
+                                    <Label htmlFor="apiKeyService">Provider</Label>
                                     <select
                                         id="apiKeyService"
-                                        value={apiKeyForm.service}
-                                        onChange={(e) => setApiKeyForm(prev => ({ ...prev, service: e.target.value as any }))}
+                                        value={apiKeyForm.provider_id}
+                                        onChange={(e) => setApiKeyForm(prev => ({ ...prev, provider_id: e.target.value }))}
                                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        disabled={providersLoading}
                                     >
-                                        <option value="gemini">Google Gemini</option>
-                                        <option value="openai">OpenAI</option>
-                                        <option value="anthropic">Anthropic Claude</option>
+                                        <option value="">Select a provider...</option>
+                                        {providers?.map((provider) => (
+                                            <option key={provider.id} value={provider.id}> {/* Use provider.id instead of provider.name */}
+                                                {provider.display_name}
+                                            </option>
+                                        ))}
                                     </select>
+                                    {providersLoading && (
+                                        <p className="text-sm text-muted-foreground">Loading providers...</p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">
@@ -438,15 +466,10 @@ const SettingsPage: React.FC = () => {
                                             <div className="flex items-center space-x-3">
                                                 <Key className="h-4 w-4 text-muted-foreground" />
                                                 <div>
-                                                    <div className="font-medium">{apiKey.name}</div>
+                                                    <div className="font-medium">{apiKey.provider_display_name} API Key</div>
                                                     <div className="text-sm text-muted-foreground capitalize">
-                                                        {apiKey.service} • Created {new Date(apiKey.created_at).toLocaleDateString()}
+                                                        {apiKey.provider_display_name || apiKey.provider_name} • Created {new Date(apiKey.created_at).toLocaleDateString()}
                                                     </div>
-                                                    {apiKey.last_used && (
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Last used: {new Date(apiKey.last_used).toLocaleDateString()}
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </div>
 

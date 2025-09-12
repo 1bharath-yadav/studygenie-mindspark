@@ -116,57 +116,106 @@ export const API_ENDPOINTS = {
     // Health check
     health: '/health',
 
-    // Authentication
+    // Authentication (updated for new Supabase JWT system)
     auth: {
-        login: '/api/auth/login',
-        callback: '/api/auth/callback',
-        verify: '/api/auth/verify',
-        me: '/api/users/me',
+        signUp: '/api/v1/auth/sign-up',
+        signIn: '/api/v1/auth/login', // Fixed: use the actual OAuth login endpoint
+        signOut: '/api/v1/auth/sign-out',
+        refresh: '/api/v1/auth/refresh',
+        me: '/api/v1/auth/profile', // Updated to match backend route
+        protected: '/api/v1/auth/protected',
+        verify: '/api/v1/auth/verify', // Keep for backward compatibility
+        login: '/api/v1/auth/login', // OAuth login endpoint
+        callback: '/api/v1/auth/callback', // Keep if needed for OAuth
     },
 
-    // LLM services
+    // LLM services (updated for new functional structure)
     llm: {
-        processFiles: '/api/process-files',
-        chatResponse: '/api/chat-response',
-        generateContent: '/api/generate-content',
+        processFiles: '/api/v1/llm/process-files',
+        chatResponse: '/api/v1/llm/chat-response',
+        generateContent: '/api/v1/llm/generate-content',
+        generateStructured: '/api/v1/llm/generate-structured',
+        providers: '/api/v1/llm/providers',
+        models: '/api/v1/llm/models',
+        capabilities: '/api/v1/llm/capabilities',
     },
 
-    // Students
+    // Students (updated for new functional structure)
     students: {
-        list: '/api/students',
-        create: '/api/students',
-        getById: (id: string) => `/api/students/${id}`,
-        update: (id: string) => `/api/students/${id}`,
-        delete: (id: string) => `/api/students/${id}`,
-        progress: (id: string) => `/api/students/${id}/progress`,
-        recommendations: (id: string) => `/api/students/${id}/recommendations`,
-        analytics: (id: string) => `/api/students/${id}/analytics`,
-        saveLearningActivity: (id: string) => `/api/students/${id}/learning-activity`,
+        list: '/api/v1/students',
+        create: '/api/v1/students',
+        getById: (id: string) => `/api/v1/students/${id}`,
+        update: (id: string) => `/api/v1/students/${id}`,
+        delete: (id: string) => `/api/v1/students/${id}`,
+        progress: (id: string) => `/api/v1/students/${id}/progress`,
+        recommendations: (id: string) => `/api/v1/students/${id}/recommendations`,
+        analytics: (id: string) => `/api/v1/students/${id}/analytics`,
+        saveLearningActivity: (id: string) => `/api/v1/students/${id}/learning-activity`,
     },
 
-    // User profile
+    // User profile (kept for compatibility)
     users: {
-        me: '/api/users/me',
-        updateProfile: '/api/users/me',
-        deleteProfile: '/api/users/me',
+        me: '/api/v1/auth/profile', // Updated to match backend route
+        updateProfile: '/api/v1/users/me',
+        deleteProfile: '/api/v1/users/me',
     },
 
-    // API Keys
+    // API Keys (updated for new functional structure)
     apiKeys: {
-        list: '/api/api-keys',
-        create: '/api/api-keys',
-        delete: (id: string) => `/api/api-keys/${id}`,
-        status: '/api/api-keys/status',
+        list: '/api/v1/api-keys',
+        create: '/api/v1/api-keys',
+        delete: (id: string) => `/api/v1/api-keys/${id}`,
+        status: (provider: string) => `/api/v1/api-keys/providers/${provider}/status`,
+        checkProvider: (provider: string) => `/api/v1/api-keys/providers/${provider}/status`,
     },
 
-    // Analytics
+    // Analytics (updated for new comprehensive analytics)
     analytics: {
-        dashboard: (studentId: string) => `/api/analytics/${studentId}/dashboard`,
-        progress: (studentId: string) => `/api/analytics/${studentId}/progress`,
-        weeklyTrends: (studentId: string) => `/api/analytics/${studentId}/weekly-trends`,
-        achievements: (studentId: string) => `/api/analytics/${studentId}/achievements`,
-        studyPatterns: (studentId: string) => `/api/analytics/${studentId}/study-patterns`,
-        weaknesses: (studentId: string) => `/api/analytics/${studentId}/weaknesses`,
+        dashboard: (studentId: string, days?: number) => 
+            `/api/v1/analytics/${studentId}/dashboard${days ? `?days=${days}` : ''}`,
+        subjects: (studentId: string, days?: number) => 
+            `/api/v1/analytics/${studentId}/subjects${days ? `?days=${days}` : ''}`,
+        progress: (studentId: string, subjectId?: number) => 
+            `/api/v1/analytics/${studentId}/progress${subjectId ? `?subject_id=${subjectId}` : ''}`,
+        achievements: (studentId: string) => 
+            `/api/v1/analytics/${studentId}/achievements`,
+        weeklyTrends: (studentId: string, weeks?: number) => 
+            `/api/v1/analytics/${studentId}/weekly-trends${weeks ? `?weeks=${weeks}` : ''}`,
+        weaknesses: (studentId: string) => 
+            `/api/v1/analytics/${studentId}/weaknesses`,
+        studyPatterns: (studentId: string, days?: number) => 
+            `/api/v1/analytics/${studentId}/study-patterns${days ? `?days=${days}` : ''}`,
+        
+        // Legacy endpoints for backward compatibility
+        weeklyTrendsLegacy: (studentId: string) => `/api/analytics/${studentId}/weekly-trends`,
+        dashboardLegacy: (studentId: string) => `/api/analytics/${studentId}/dashboard`,
+    },
+
+    // Provider management (new endpoints)
+    providers: {
+        list: '/api/v1/providers',
+        create: '/api/v1/providers',
+        getById: (id: string) => `/api/v1/providers/${id}`,
+        update: (id: string) => `/api/v1/providers/${id}`,
+        delete: (id: string) => `/api/v1/providers/${id}`,
+        models: (id: string) => `/api/v1/providers/${id}/models`,
+    },
+
+    // Model management (new endpoints)
+    models: {
+        list: '/api/v1/models',
+        getById: (id: string) => `/api/v1/models/${id}`,
+        byProvider: (providerId: string) => `/api/v1/providers/${providerId}/models`,
+        byType: (type: string) => `/api/v1/models?type=${type}`,
+    },
+
+    // User Model Preferences (new endpoints)
+    modelPreferences: {
+        list: '/api/v1/model-preferences',
+        create: '/api/v1/model-preferences',
+        update: (id: string) => `/api/v1/model-preferences/${id}`,
+        delete: (id: string) => `/api/v1/model-preferences/${id}`,
+        setDefault: (modelId: string, useCase: string) => `/api/v1/model-preferences/default?model_id=${modelId}&use_case=${useCase}`,
     },
 } as const;
 

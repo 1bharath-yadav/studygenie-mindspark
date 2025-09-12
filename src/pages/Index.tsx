@@ -5,7 +5,9 @@ import { useApiKeys } from '@/hooks/useApi';
 
 const Index = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const { data: apiKeys } = useApiKeys();
+  
+  // Only fetch API keys if user is authenticated
+  const { data: apiKeys } = useApiKeys({ enabled: isAuthenticated });
 
   if (isLoading) {
     return (

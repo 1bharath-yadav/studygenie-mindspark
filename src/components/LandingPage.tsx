@@ -86,7 +86,7 @@ const LandingPage = () => {
                                 {healthData.status === 'healthy' ? '🟢 Online' : '🔴 Offline'}
                             </Badge>
                         )}
-                        <Button onClick={login} size="lg" className="relative overflow-hidden group">
+                        <Button onClick={() => login()} size="lg" className="relative overflow-hidden group">
                             <Sparkles className="h-4 w-4 mr-2 group-hover:animate-pulse" />
                             Sign In with Google
                         </Button>
@@ -110,7 +110,7 @@ const LandingPage = () => {
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                        <Button onClick={login} size="lg" className="text-lg px-8 py-6">
+                        <Button onClick={() => login()} size="lg" className="text-lg px-8 py-6">
                             <Brain className="h-5 w-5 mr-2" />
                             Start Learning Now
                         </Button>
@@ -231,7 +231,7 @@ const LandingPage = () => {
                                 </div>
                             ))}
                         </div>
-                        <Button onClick={login} size="lg" className="mt-6">
+                        <Button onClick={() => login()} size="lg" className="mt-6">
                             <Users className="h-5 w-5 mr-2" />
                             Join StudyGenie Today
                         </Button>
@@ -271,7 +271,7 @@ const LandingPage = () => {
                         Join thousands of students already using StudyGenie to achieve their academic goals.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <Button onClick={login} size="lg" className="text-lg px-8 py-6">
+                        <Button onClick={() => login()} size="lg" className="text-lg px-8 py-6">
                             <Sparkles className="h-5 w-5 mr-2" />
                             Get Started Free
                         </Button>
