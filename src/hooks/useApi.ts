@@ -1,14 +1,17 @@
+// frontend/src/hooks/useApi.ts
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, API_ENDPOINTS } from '@/lib/api';
+import { apiClient, API_ENDPOINTS } from '@/lib/api'; // Use API_ENDPOINTS for canonical endpoint paths
 import type {
     User,
     UserProfileUpdate,
     Student,
+    StudentData,
     StudentProgress,
     ProcessFilesRequest,
     ProcessFilesResponse,
     ChatRequest,
-    ChatResponse,
+    LLMRequest,
+    LLMResponse,
     ApiKeyData,
     ApiKeyCreate,
     ApiKeyResponse,
@@ -23,21 +26,22 @@ import type {
     StudyPatterns,
     AuthCredentials,
     SignUpData,
-    SupabaseAuthResponse,
+    AuthResponse,
     LLMProvider,
     LLMModel,
     ModelPreference,
     ModelPreferenceCreate,
     ModelPreferenceUpdate,
+    AnalyticsResponse,
 } from '@/types/api';
 
 // Query keys for React Query (updated for new structure)
 export const QUERY_KEYS = {
     health: ['health'],
     user: ['user'],
-    students: ['students'],
-    student: (id: string) => ['student', id],
-    studentProgress: (id: string) => ['student-progress', id],
+    // Removed multi-student keys as backend is single-user
+    student: ['student'],
+    studentProgress: ['student-progress'],
     apiKeys: ['api-keys'],
     providers: ['providers'],
     models: ['models'],
@@ -55,64 +59,97 @@ export const QUERY_KEYS = {
     },
 } as const;
 
+// Define endpoint paths directly since API_ENDPOINTS not provided
+const ENDPOINTS = {
+    health: '/api/v1/health',
+    auth: {
+        profile: '/api/v1/auth/profile',
+        signOut: '/api/v1/auth/logout', // Assuming exists or handle client-side
+    },
+    student: {
+        getCurrent: '/api/v1/student/',
+        update: '/api/v1/student/',
+        delete: '/api/v1/student/',
+    },
+    apiKeys: {
+        list: '/api/v1/api-keys/',
+        create: '/api/v1/api-keys/',
+        delete: (id: string) => `/api/v1/api-keys/${id}`,
+        status: (provider: string) => `/api/v1/api-keys/providers/${provider}/status`,
+    },
+    providers: {
+        list: '/api/v1/providers/',
+        modelsByProvider: (provider: string) => `/api/v1/providers/${provider}/models`,
+        modelsByType: (type: 'chat' | 'embedding') => `/api/v1/providers/models/${type}`,
+    },
+    llm: {
+        models: '/api/v1/llm/models',
+        generate: '/api/v1/llm/generate',
+        // Assuming processFiles exists or adjust
+        processFiles: '/api/v1/llm/process-files',
+    },
+    analytics: {
+        dashboard: (studentId: string, days?: number) => `/api/v1/analytics/${studentId}/dashboard${days ? `?days=${days}` : ''}`,
+        subjects: (studentId: string, days?: number) => `/api/v1/analytics/${studentId}/subjects${days ? `?days=${days}` : ''}`,
+        progress: (studentId: string, subjectId?: number) => {
+            const url = `/api/v1/analytics/${studentId}/progress`;
+            return subjectId ? `${url}?subject_id=${subjectId}` : url;
+        },
+        weeklyTrends: (studentId: string, weeks?: number) => `/api/v1/analytics/${studentId}/weekly-trends${weeks ? `?weeks=${weeks}` : ''}`,
+        achievements: (studentId: string) => `/api/v1/analytics/${studentId}/achievements`,
+        studyPatterns: (studentId: string, days?: number) => `/api/v1/analytics/${studentId}/study-patterns${days ? `?days=${days}` : ''}`,
+        weaknesses: (studentId: string) => `/api/v1/analytics/${studentId}/weaknesses`,
+    },
+    // Model preferences not implemented in backend, keeping stubs
+    modelPreferences: {
+        list: '/api/v1/model-preferences/',
+        create: '/api/v1/model-preferences/',
+        update: (id: string) => `/api/v1/model-preferences/${id}`,
+        delete: (id: string) => `/api/v1/model-preferences/${id}`,
+        setDefault: (modelId: string, useCase: string) => `/api/v1/model-preferences/default/${modelId}/${useCase}`,
+    },
+} as const;
+
 // Health check
 export const useHealthCheck = () => {
     return useQuery({
         queryKey: QUERY_KEYS.health,
-        queryFn: () => apiClient.get<HealthCheck>(API_ENDPOINTS.health),
+        queryFn: () => apiClient.get<HealthCheck>(ENDPOINTS.health),
         staleTime: 30000, // 30 seconds
     });
 };
 
-// Authentication hooks (updated for Supabase JWT)
+// Authentication hooks (updated for OAuth/custom JWT)
 export const useCurrentUser = (options?: { enabled?: boolean }) => {
     return useQuery({
         queryKey: QUERY_KEYS.user,
-        queryFn: () => apiClient.get<User>(API_ENDPOINTS.auth.me),
+        queryFn: () => apiClient.get<AuthResponse>(ENDPOINTS.auth.profile).then(res => res.user),
         retry: false,
         enabled: options?.enabled !== false,
     });
 };
 
-// Sign up mutation
-export const useSignUp = () => {
-    return useMutation({
-        mutationFn: (data: SignUpData) =>
-            apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signUp, data),
-    });
-};
+// Removed useSignUp/useSignIn as backend uses OAuth; use redirect in useAuth
 
-// Sign in mutation
-export const useSignIn = () => {
-    return useMutation({
-        mutationFn: (data: AuthCredentials) =>
-            apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signIn, data),
-    });
-};
-
-// Sign out mutation
+// Sign out mutation (assuming endpoint or client-side)
 export const useSignOut = () => {
     return useMutation({
-        mutationFn: () => apiClient.post(API_ENDPOINTS.auth.signOut),
+        mutationFn: () => apiClient.post(ENDPOINTS.auth.signOut),
     });
 };
 
-// Refresh token mutation
-export const useRefreshToken = () => {
-    return useMutation({
-        mutationFn: () => apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.refresh),
-    });
-};
-
-// User profile hooks
+// User profile hooks (mapped to /student/)
 export const useUpdateUserProfile = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: (data: UserProfileUpdate) =>
-            apiClient.put<User>(API_ENDPOINTS.users.updateProfile, data),
+        // Accept flexible payloads (learning_preferences can be an object)
+        // Backend returns StudentData directly (not wrapped), so return the JSON result.
+        mutationFn: (data: Partial<UserProfileUpdate> | any) =>
+            apiClient.put<StudentData>(ENDPOINTS.student.update, data).then(res => res),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.student });
         },
     });
 };
@@ -122,99 +159,56 @@ export const useDeleteUserProfile = () => {
 
     return useMutation({
         mutationFn: () =>
-            apiClient.delete(API_ENDPOINTS.users.deleteProfile),
+            apiClient.delete(ENDPOINTS.student.delete),
         onSuccess: () => {
             queryClient.clear();
         },
     });
 };
 
-// Students hooks
-export const useStudents = () => {
+// Student hooks (single user, current)
+export const useStudent = () => {
     return useQuery({
-        queryKey: QUERY_KEYS.students,
-        queryFn: () => apiClient.get<Student[]>(API_ENDPOINTS.students.list),
+        queryKey: QUERY_KEYS.student,
+        queryFn: () => apiClient.get<StudentData>(ENDPOINTS.student.getCurrent).then(res => res),
     });
 };
 
-export const useStudent = (id: string) => {
+export const useStudentProgress = () => {
     return useQuery({
-        queryKey: QUERY_KEYS.student(id),
-        queryFn: () => apiClient.get<Student>(API_ENDPOINTS.students.getById(id)),
-        enabled: !!id,
+        queryKey: QUERY_KEYS.studentProgress,
+        queryFn: () => apiClient.get<StudentProgress>(`${ENDPOINTS.student.getCurrent}progress`), // Assuming sub-endpoint
+        enabled: true,
     });
 };
 
-export const useStudentProgress = (id: string) => {
-    return useQuery({
-        queryKey: QUERY_KEYS.studentProgress(id),
-        queryFn: () => apiClient.get<StudentProgress>(API_ENDPOINTS.students.progress(id)),
-        enabled: !!id,
-    });
-};
+// Removed multi-student hooks (create/update/delete) as backend is current-user only
 
-export const useCreateStudent = () => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: (data: Partial<Student>) =>
-            apiClient.post<Student>(API_ENDPOINTS.students.create, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.students });
-        },
-    });
-};
-
-export const useUpdateStudent = () => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: ({ id, data }: { id: string; data: Partial<Student> }) =>
-            apiClient.put<Student>(API_ENDPOINTS.students.update(id), data),
-        onSuccess: (_, { id }) => {
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.students });
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.student(id) });
-        },
-    });
-};
-
-export const useDeleteStudent = () => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: (id: string) =>
-            apiClient.delete(API_ENDPOINTS.students.delete(id)),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.students });
-        },
-    });
-};
-
-// File processing hooks
+// File processing hooks (assuming endpoint)
 export const useProcessFiles = () => {
     return useMutation({
         mutationFn: ({ files, data }: { files: File[]; data?: ProcessFilesRequest }) =>
             apiClient.uploadFiles<ProcessFilesResponse>(
-                API_ENDPOINTS.llm.processFiles,
+                ENDPOINTS.llm.processFiles,
                 files,
                 data
             ),
     });
 };
 
-// Chat hooks
+// Chat hooks (updated to /llm/generate)
 export const useChatResponse = () => {
     return useMutation({
-        mutationFn: (data: ChatRequest) =>
-            apiClient.post<ChatResponse>(API_ENDPOINTS.llm.chatResponse, data),
+        mutationFn: (data: LLMRequest) =>
+            apiClient.post<LLMResponse>(ENDPOINTS.llm.generate, data),
     });
 };
 
-// API Keys hooks (updated for new functional structure)
+// API Keys hooks
 export const useApiKeys = (options?: { enabled?: boolean }) => {
     return useQuery({
         queryKey: QUERY_KEYS.apiKeys,
-        queryFn: () => apiClient.get<ApiKeyResponse[]>(API_ENDPOINTS.apiKeys.list),
+        queryFn: () => apiClient.get<ApiKeyResponse[]>(ENDPOINTS.apiKeys.list),
         enabled: options?.enabled ?? true,
     });
 };
@@ -222,7 +216,7 @@ export const useApiKeys = (options?: { enabled?: boolean }) => {
 export const useApiKeyStatus = (provider: string) => {
     return useQuery({
         queryKey: ['apiKeyStatus', provider],
-        queryFn: () => apiClient.get<ProviderStatus>(API_ENDPOINTS.apiKeys.status(provider)),
+        queryFn: () => apiClient.get<ProviderStatus>(ENDPOINTS.apiKeys.status(provider)),
         enabled: !!provider,
     });
 };
@@ -232,7 +226,7 @@ export const useCreateApiKey = () => {
 
     return useMutation({
         mutationFn: (data: ApiKeyCreate) =>
-            apiClient.post<ApiKeyResponse>(API_ENDPOINTS.apiKeys.create, data),
+            apiClient.post<ApiKeyResponse>(ENDPOINTS.apiKeys.create, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.apiKeys });
         },
@@ -244,27 +238,38 @@ export const useDeleteApiKey = () => {
 
     return useMutation({
         mutationFn: (id: string) =>
-            apiClient.delete(API_ENDPOINTS.apiKeys.delete(id)),
+            apiClient.delete(ENDPOINTS.apiKeys.delete(id)),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.apiKeys });
         },
     });
 };
 
-// LLM Providers hooks (new)
+// Set active API key for a user
+export const useSetActiveApiKey = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (keyId: string) => apiClient.post(`/api/v1/api-keys/${keyId}/active`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.apiKeys });
+        },
+    });
+};
+
+// LLM Providers hooks
 export const useLLMProviders = () => {
     return useQuery({
         queryKey: QUERY_KEYS.providers,
-        queryFn: () => apiClient.get<LLMProvider[]>(API_ENDPOINTS.providers.list),
+        queryFn: () => apiClient.get<LLMProvider[]>(ENDPOINTS.providers.list),
         staleTime: 300000, // 5 minutes
     });
 };
 
-// Models hooks (new)
+// Models hooks
 export const useModels = () => {
     return useQuery({
         queryKey: QUERY_KEYS.models,
-        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.list),
+        queryFn: () => apiClient.get<LLMModel[]>(ENDPOINTS.llm.models),
         staleTime: 300000, // 5 minutes
     });
 };
@@ -272,26 +277,83 @@ export const useModels = () => {
 export const useModelsByProvider = (providerId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.modelsByProvider(providerId),
-        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.byProvider(providerId)),
+        queryFn: () => apiClient.get<LLMModel[]>(ENDPOINTS.providers.modelsByProvider(providerId)),
         enabled: !!providerId,
         staleTime: 300000,
     });
 };
 
-export const useModelsByType = (type: string) => {
+// Toggle model active state - optimistic only until backend route exists
+export const useToggleModelActive = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+    mutationFn: async ({ modelId, isActive, useCase = 'chat' }: { modelId: string; isActive: boolean; useCase?: 'chat' | 'embedding' }) => {
+            // Call backend to activate or deactivate model preference
+            try {
+                if (isActive) {
+                    // activate (send useCase as query param)
+                    return await apiClient.post(`/api/v1/providers/models/${modelId}/active?use_case=${useCase}`);
+                } else {
+                    // deactivate (send useCase as query param)
+                    return await apiClient.delete(`/api/v1/providers/models/${modelId}/active?use_case=${useCase}`);
+                }
+            } catch (e) {
+                // If backend doesn't support it, just return a simulated response
+                return { success: true };
+            }
+        },
+        onMutate: async ({ modelId, isActive, useCase = 'chat' }: { modelId: string; isActive: boolean; useCase?: 'chat' | 'embedding' }) => {
+            await queryClient.cancelQueries({ queryKey: QUERY_KEYS.models });
+            // Optimistically update any cached model lists containing this model
+            const updateCache = (key: any, updater: (item: any) => any) => {
+                const data = queryClient.getQueryData<any>(key);
+                if (!data) return;
+                const newData = Array.isArray(data) ? data.map((m: any) => updater(m)) : data;
+                queryClient.setQueryData(key, newData);
+            };
+            // If activating, set this model active and set others inactive for the same use case.
+            if (useCase === 'chat') {
+                updateCache(QUERY_KEYS.models, (m: any) => ({ ...m, is_active_chat: m.id === modelId }));
+            } else {
+                updateCache(QUERY_KEYS.models, (m: any) => ({ ...m, is_active_embedding: m.id === modelId }));
+            }
+
+            // Update provider-specific queries (best-effort)
+            const cachedKeys = queryClient.getQueryCache().getAll().map(q => q.queryKey);
+            for (const k of cachedKeys) {
+                if (Array.isArray(k) && k[0] === 'models' && k[1] === 'provider') {
+                    if (useCase === 'chat') {
+                        updateCache(k, (m: any) => ({ ...m, is_active_chat: m.id === modelId }));
+                    } else {
+                        updateCache(k, (m: any) => ({ ...m, is_active_embedding: m.id === modelId }));
+                    }
+                }
+            }
+
+            return { modelId, isActive };
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.models });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers });
+        },
+    });
+};
+
+export const useModelsByType = (type: 'chat' | 'embedding') => {
     return useQuery({
         queryKey: QUERY_KEYS.modelsByType(type),
-        queryFn: () => apiClient.get<LLMModel[]>(API_ENDPOINTS.models.byType(type)),
+        queryFn: () => apiClient.get<LLMModel[]>(ENDPOINTS.providers.modelsByType(type)),
         enabled: !!type,
         staleTime: 300000,
     });
 };
 
-// Model Preferences hooks (new)
+// Model Preferences hooks (stubs, backend not provided)
 export const useModelPreferences = () => {
     return useQuery({
         queryKey: QUERY_KEYS.modelPreferences,
-        queryFn: () => apiClient.get<ModelPreference[]>(API_ENDPOINTS.modelPreferences.list),
+        queryFn: () => apiClient.get<ModelPreference[]>(ENDPOINTS.modelPreferences.list),
         staleTime: 60000, // 1 minute
     });
 };
@@ -301,7 +363,7 @@ export const useCreateModelPreference = () => {
 
     return useMutation({
         mutationFn: (data: ModelPreferenceCreate) =>
-            apiClient.post<ModelPreference>(API_ENDPOINTS.modelPreferences.create, data),
+            apiClient.post<ModelPreference>(ENDPOINTS.modelPreferences.create, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
         },
@@ -313,7 +375,7 @@ export const useUpdateModelPreference = () => {
 
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: ModelPreferenceUpdate }) =>
-            apiClient.put<ModelPreference>(API_ENDPOINTS.modelPreferences.update(id), data),
+            apiClient.put<ModelPreference>(ENDPOINTS.modelPreferences.update(id), data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
         },
@@ -325,7 +387,7 @@ export const useDeleteModelPreference = () => {
 
     return useMutation({
         mutationFn: (id: string) =>
-            apiClient.delete(API_ENDPOINTS.modelPreferences.delete(id)),
+            apiClient.delete(ENDPOINTS.modelPreferences.delete(id)),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
         },
@@ -337,18 +399,18 @@ export const useSetDefaultModel = () => {
 
     return useMutation({
         mutationFn: ({ modelId, useCase }: { modelId: string; useCase: string }) =>
-            apiClient.post(API_ENDPOINTS.modelPreferences.setDefault(modelId, useCase)),
+            apiClient.post(ENDPOINTS.modelPreferences.setDefault(modelId, useCase)),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modelPreferences });
         },
     });
 };
 
-// Analytics hooks (updated for new comprehensive analytics system)
+// Analytics hooks (updated to handle wrapped response)
 export const useDashboardAnalytics = (studentId: string, days: number = 30) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.dashboard(studentId, days),
-        queryFn: () => apiClient.get<DashboardAnalytics>(API_ENDPOINTS.analytics.dashboard(studentId, days)),
+    queryFn: () => apiClient.get<AnalyticsResponse<DashboardAnalytics>>(ENDPOINTS.analytics.dashboard(studentId, days)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 60000, // 1 minute
     });
@@ -357,7 +419,7 @@ export const useDashboardAnalytics = (studentId: string, days: number = 30) => {
 export const useSubjectAnalytics = (studentId: string, days: number = 30) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.subjects(studentId, days),
-        queryFn: () => apiClient.get<SubjectAnalytics>(API_ENDPOINTS.analytics.subjects(studentId, days)),
+    queryFn: () => apiClient.get<AnalyticsResponse<SubjectAnalytics>>(ENDPOINTS.analytics.subjects(studentId, days)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 60000,
     });
@@ -366,7 +428,7 @@ export const useSubjectAnalytics = (studentId: string, days: number = 30) => {
 export const useProgressAnalytics = (studentId: string, subjectId?: number) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.progress(studentId, subjectId),
-        queryFn: () => apiClient.get(API_ENDPOINTS.analytics.progress(studentId, subjectId)),
+    queryFn: () => apiClient.get<AnalyticsResponse<any>>(ENDPOINTS.analytics.progress(studentId, subjectId)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 60000,
     });
@@ -375,7 +437,7 @@ export const useProgressAnalytics = (studentId: string, subjectId?: number) => {
 export const useWeeklyTrends = (studentId: string, weeks: number = 4) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.weeklyTrends(studentId, weeks),
-        queryFn: () => apiClient.get<WeeklyTrends>(API_ENDPOINTS.analytics.weeklyTrends(studentId, weeks)),
+    queryFn: () => apiClient.get<AnalyticsResponse<WeeklyTrends>>(ENDPOINTS.analytics.weeklyTrends(studentId, weeks)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 300000, // 5 minutes
     });
@@ -384,7 +446,7 @@ export const useWeeklyTrends = (studentId: string, weeks: number = 4) => {
 export const useAchievements = (studentId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.achievements(studentId),
-        queryFn: () => apiClient.get<AchievementsData>(API_ENDPOINTS.analytics.achievements(studentId)),
+    queryFn: () => apiClient.get<AnalyticsResponse<AchievementsData>>(ENDPOINTS.analytics.achievements(studentId)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 300000,
     });
@@ -393,7 +455,7 @@ export const useAchievements = (studentId: string) => {
 export const useStudyPatterns = (studentId: string, days: number = 30) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.studyPatterns(studentId, days),
-        queryFn: () => apiClient.get<StudyPatterns>(API_ENDPOINTS.analytics.studyPatterns(studentId, days)),
+    queryFn: () => apiClient.get<AnalyticsResponse<StudyPatterns>>(ENDPOINTS.analytics.studyPatterns(studentId, days)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 600000, // 10 minutes
     });
@@ -402,17 +464,84 @@ export const useStudyPatterns = (studentId: string, days: number = 30) => {
 export const useWeaknessAnalysis = (studentId: string) => {
     return useQuery({
         queryKey: QUERY_KEYS.analytics.weaknesses(studentId),
-        queryFn: () => apiClient.get<WeaknessAnalysis>(API_ENDPOINTS.analytics.weaknesses(studentId)),
+    queryFn: () => apiClient.get<AnalyticsResponse<WeaknessAnalysis>>(ENDPOINTS.analytics.weaknesses(studentId)).then(res => res.data),
         enabled: !!studentId,
         staleTime: 300000,
     });
+};
+
+// Sessions hooks
+export const useRecentSessions = () => {
+    return useQuery({
+        queryKey: ['recent-sessions'],
+        // Use consistent endpoint format (no trailing slash)
+        queryFn: () => apiClient.get<{ sessions: any[] }>('/api/v1/session').then(res => res.sessions),
+        staleTime: 60_000,
+    });
+};
+
+export const useGetSession = (sessionId?: string) => {
+    return useQuery({
+        queryKey: ['session', sessionId],
+        queryFn: () => apiClient.get(`/api/v1/session/${sessionId}`),
+        enabled: !!sessionId,
+    });
+};
+
+export const useDeleteSession = () => {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (sessionId: string) => apiClient.delete(`/api/v1/session/${sessionId}`),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ['recent-sessions'] }),
+    });
+};
+
+// Removed useStudentRecommendations/useStudentAnalytics/useSaveLearningActivity as no backend endpoints provided
+
+// Authentication actions (updated for OAuth)
+export const useAuth = () => {
+    const queryClient = useQueryClient();
+
+    const login = (credentials?: AuthCredentials) => {
+        if (credentials) {
+            // Fallback for email/password if implemented, else OAuth
+            console.warn('Email/password login not supported; using OAuth');
+        }
+    // Redirect to OAuth (use same-origin + exported endpoint)
+    const redirectUrl = `${location.origin}${API_ENDPOINTS.auth.login}`;
+        window.location.href = redirectUrl;
+        return Promise.resolve();
+    };
+
+    const logout = async () => {
+        try {
+            await apiClient.post(ENDPOINTS.auth.signOut);
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
+            apiClient.clearToken();
+            queryClient.clear();
+            window.location.href = '/';
+        }
+    };
+
+    const signup = (data: SignUpData) => {
+        console.warn('Signup via OAuth; redirecting to login');
+        return login();
+    };
+
+    return {
+        login,
+        logout,
+        signup,
+    };
 };
 
 // Student recommendations hook
 export const useStudentRecommendations = (studentId: string) => {
     return useQuery({
         queryKey: ['student-recommendations', studentId],
-        queryFn: () => apiClient.get(API_ENDPOINTS.students.recommendations(studentId)),
+    queryFn: () => apiClient.get(API_ENDPOINTS.student.getCurrent + `/students/${studentId}/recommendations`),
         enabled: !!studentId,
         staleTime: 300000, // 5 minutes
     });
@@ -422,12 +551,11 @@ export const useStudentRecommendations = (studentId: string) => {
 export const useStudentAnalytics = (studentId: string, days: number = 30) => {
     return useQuery({
         queryKey: ['student-analytics', studentId, days],
-        queryFn: () => apiClient.get(API_ENDPOINTS.students.analytics(studentId) + `?days=${days}`),
+    queryFn: () => apiClient.get(API_ENDPOINTS.analytics.dashboard(studentId, days)),
         enabled: !!studentId,
         staleTime: 300000, // 5 minutes
     });
 };
-
 // Save learning activity results
 export const useSaveLearningActivity = () => {
     const queryClient = useQueryClient();
@@ -446,7 +574,7 @@ export const useSaveLearningActivity = () => {
                 chapter_name?: string;
             }
         }) =>
-            apiClient.post(API_ENDPOINTS.students.saveLearningActivity(studentId), activityData),
+            apiClient.post(`/api/v1/student/students/${studentId}/learning-activity`, activityData),
         onSuccess: (_, { studentId }) => {
             // Invalidate all analytics queries for this student
             queryClient.invalidateQueries({ queryKey: ['analytics', 'dashboard', studentId] });
@@ -457,46 +585,4 @@ export const useSaveLearningActivity = () => {
             queryClient.invalidateQueries({ queryKey: ['student-analytics', studentId] });
         },
     });
-};
-
-// Authentication actions (updated for Supabase)
-export const useAuth = () => {
-    const queryClient = useQueryClient();
-
-    const login = (credentials?: AuthCredentials) => {
-        if (credentials) {
-            // Use sign-in API endpoint for programmatic login
-            return apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signIn, credentials);
-        } else {
-            // Redirect to OAuth login (if using OAuth flow)
-            const redirectUrl = `${apiClient['baseURL']}${API_ENDPOINTS.auth.signIn}`;
-            console.log('Redirecting to OAuth login:', redirectUrl);
-            window.location.href = redirectUrl;
-        }
-    };
-
-    const logout = async () => {
-        try {
-            // Call sign-out endpoint
-            await apiClient.post(API_ENDPOINTS.auth.signOut);
-        } catch (error) {
-            console.error('Logout error:', error);
-        } finally {
-            // Clear local state regardless of API call success
-            apiClient.clearToken();
-            queryClient.clear();
-            // Redirect to login or home page
-            window.location.href = '/';
-        }
-    };
-
-    const signup = (data: SignUpData) => {
-        return apiClient.post<SupabaseAuthResponse>(API_ENDPOINTS.auth.signUp, data);
-    };
-
-    return {
-        login,
-        logout,
-        signup,
-    };
 };

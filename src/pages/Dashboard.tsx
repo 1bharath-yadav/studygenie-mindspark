@@ -10,7 +10,9 @@ import { BarChart3, TrendingUp, BookOpen, Target } from 'lucide-react';
 const DashboardPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState('subjects');
     const { data: currentUser } = useCurrentUser();
-    const studentId = currentUser?.email || '';
+    // Use the canonical student id provided by the auth profile (student_id, sub, or id)
+    // Ensure we prefer 'student_id' (explicit) to avoid accidentally using email
+    const studentId = currentUser?.student_id || currentUser?.id || currentUser?.sub || '';
 
     const { data: dashboardData, isLoading: dashboardLoading, error: dashboardError } = useDashboardAnalytics(studentId);
     const { data: progressAnalytics, isLoading: progressLoading, error: progressError } = useProgressAnalytics(studentId);
@@ -33,16 +35,22 @@ const DashboardPage: React.FC = () => {
     const isLoading = dashboardLoading || progressLoading || trendsLoading || weaknessLoading;
     const hasError = dashboardError || progressError || trendsError || weaknessError;
 
-    // Extract subjects data from dashboard analytics
-    const dashboardDataTyped = dashboardData as any;
-    const subjectsData = dashboardDataTyped?.data?.subjects_analytics ?
-        Object.entries(dashboardDataTyped.data.subjects_analytics).map(([subjectName, data]: [string, any]) => ({
+    // Extract subjects data from dashboard analytics. Prefer the new `subjects` list
+    // which includes nested chapters -> concepts. Fall back to subjects_analytics for older responses.
+    const analytics = dashboardData as any; // hook returns analytics.data already
+    const subjectsData = analytics?.subjects ? (
+        // analytics.subjects is already a list shaped for the frontend
+        analytics.subjects
+    ) : (analytics?.subjects_analytics ?
+        Object.entries(analytics.subjects_analytics).map(([subjectName, data]: [string, any]) => ({
             subject_name: subjectName,
-            total_concepts: data.total_concepts || 0,
-            mastered_concepts: data.mastered_concepts || 0,
+            total_concepts: data.total_concepts || data.concepts_total || 0,
+            mastered_concepts: data.mastered_concepts || data.concepts_mastered || 0,
             mastery_percentage: data.mastery_percentage || 0,
             chapters: data.chapters || {}
-        })) : []; return (
+        })) : []);
+
+    return (
             <AppLayout
                 title="Learning Dashboard"
                 subtitle={`Track your progress and insights • ${currentUser?.name}`}

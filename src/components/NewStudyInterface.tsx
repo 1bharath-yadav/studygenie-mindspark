@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { QuizComponent } from '@/components/study/QuizComponent';
 import { MatchTheFollowing } from '@/components/study/MatchTheFollowing';
 import { FlashcardViewer } from '@/components/study/FlashcardViewer';
 import { IntegratedAIAssistant } from '@/components/IntegratedAIAssistant';
+import { FileUploadZone } from '@/components/upload/FileUploadZone';
 import { useApiKeys, useApiKeyStatus, useCurrentUser, useSaveLearningActivity } from '@/hooks/useApi';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -19,7 +20,9 @@ import {
     Zap,
     Settings,
     Home,
-    Trash2
+    Trash2,
+    MessageCircle,
+    X as XIcon,
 } from 'lucide-react';
 
 interface NewStudyInterfaceProps {
@@ -31,9 +34,13 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     isAuthenticated = true,
     hasApiKey = true
 }) => {
+    const [assistantOpen, setAssistantOpen] = useState<boolean>(false);
+    const hideTimeoutRef = useRef<number | null>(null);
+    const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
     const navigate = useNavigate();
     const { toast } = useToast();
     const [learningContent, setLearningContent] = useState<any>(null);
+    const [sessionHistory, setSessionHistory] = useState<any[]>([]);
     const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>([]);
 
     // Session storage key for persistence
@@ -45,11 +52,21 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         try {
             const savedContent = sessionStorage.getItem(LEARNING_CONTENT_KEY);
             const savedContentTypes = sessionStorage.getItem(SELECTED_CONTENT_TYPES_KEY);
+            const savedHistory = sessionStorage.getItem('studygenie_session_history');
 
             if (savedContent) {
                 const parsedContent = JSON.parse(savedContent);
                 console.log('📄 Restored learning content from session:', parsedContent);
                 setLearningContent(parsedContent);
+            }
+
+            if (savedHistory) {
+                try {
+                    const parsedHistory = JSON.parse(savedHistory);
+                    if (Array.isArray(parsedHistory)) setSessionHistory(parsedHistory);
+                } catch (e) {
+                    console.error('Failed to parse saved session history:', e);
+                }
             }
 
             if (savedContentTypes) {
@@ -94,15 +111,16 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     // Get real data from APIs
     const { data: currentUser } = useCurrentUser();
     const { data: apiKeys } = useApiKeys();
-    const { data: apiKeyStatus } = useApiKeyStatus();
+    // pass empty provider to avoid TypeScript missing-argument error; the hook will be a no-op
+    const { data: apiKeyStatus } = useApiKeyStatus('');
     const saveLearningActivityMutation = useSaveLearningActivity();
 
     const studentName = currentUser?.name || 'Student';
     const gradeLevel = currentUser?.grade_level || 'High School';
 
     // Use the dedicated status endpoint for better performance and accuracy
-    const hasActiveApiKey = apiKeyStatus?.hasActiveApiKey ||
-        (apiKeys && apiKeys.length > 0 && apiKeys.some(key => key.is_active));
+    const hasActiveApiKey = (apiKeyStatus && (apiKeyStatus as any).hasActiveApiKey) ||
+        (apiKeys && apiKeys.length > 0 && apiKeys.some((key: any) => key.is_active));
 
     // Get student ID for analytics (use email as student ID since username doesn't exist)
     const studentId = currentUser?.email || 'demo-student';
@@ -121,8 +139,18 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         console.log('🎯 Content keys:', content ? Object.keys(content) : 'null/undefined');
         console.log('🎯 Content metadata:', content?.metadata);
 
-        // Extract the actual learning content from the response and add metadata to it
-        const learningData = content?.content || {};
+        // Extract the actual learning content from the response and add metadata to it.
+        // Some providers return the useful fields directly on the top-level `content` object
+        // while others return them under a nested `content` key. Prefer nested `content`
+        // when present, otherwise fall back to the top-level object so we don't drop
+        // fields like flashcards/quiz/summary when the API returns them directly.
+        // Prefer a non-empty nested `content` object. If `content.content` is present
+        // but empty ({}), fall back to top-level fields so we don't discard flashcards/quiz.
+        const nestedContent = content?.content;
+        const hasNestedContent = nestedContent && Object.keys(nestedContent).length > 0;
+        const hasTopLevelLearningKeys = !!(content && (content.flashcards || content.quiz || content.summary || content.match_the_following || content.learning_objectives));
+
+        const learningData = hasNestedContent ? nestedContent : (hasTopLevelLearningKeys ? content : {});
         console.log('🎯 Extracted learning data:', learningData);
         console.log('🎯 Learning data keys:', learningData ? Object.keys(learningData) : 'null/undefined');
 
@@ -173,15 +201,121 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         console.log('🎯 Match the following content:', actualContent?.match_the_following);
         console.log('🎯 Has summary:', !!actualContent?.summary);
 
+        // --- Normalization pass -------------------------------------------------
+        // Normalize flashcards to a consistent shape the UI expects:
+        // { question, answer, difficulty, key_concepts }
+        if (actualContent?.flashcards) {
+            // Ensure array
+            if (!Array.isArray(actualContent.flashcards)) {
+                actualContent.flashcards = Object.values(actualContent.flashcards);
+            }
+
+            actualContent.flashcards = actualContent.flashcards.map((card: any, idx: number) => {
+                const q = card.question || card.prompt || card.q || card.question_text || card.key_concepts || `Question ${idx + 1}`;
+                const a = card.answer || card.explanation || card.correct_answer || card.a || '';
+                const difficulty = card.difficulty || card.level || 'Medium';
+                const key_concepts = card.key_concepts || card.subject || card.topic || card.label || '';
+                return {
+                    // keep original fields when available for debugging
+                    ...card,
+                    question: q,
+                    answer: a,
+                    difficulty,
+                    key_concepts
+                };
+            });
+        }
+
+        // Normalize quiz items to include question, options (if available), correct_answer, explanation
+        if (actualContent?.quiz) {
+            if (!Array.isArray(actualContent.quiz)) {
+                actualContent.quiz = Object.values(actualContent.quiz);
+            }
+
+            actualContent.quiz = actualContent.quiz.map((item: any, idx: number) => ({
+                ...item,
+                question: item.question || item.prompt || item.q || `Question ${idx + 1}`,
+                options: item.options || item.choices || item.answers || item.options_list || [],
+                correct_answer: item.correct_answer || item.correct || item.answer || null,
+                explanation: item.explanation || item.expl || item.answer_explanation || ''
+            }));
+        }
+
+        // If no explicit selected content types were restored from session, auto-select ones present
+        try {
+            const autoSelected: string[] = [];
+            if (actualContent?.flashcards && actualContent.flashcards.length > 0) autoSelected.push('flashcards');
+            if (actualContent?.quiz && actualContent.quiz.length > 0) autoSelected.push('quiz');
+            if (actualContent?.match_the_following) autoSelected.push('match_the_following');
+            if (actualContent?.learning_objectives && actualContent.learning_objectives.length > 0) {
+                // don't add a UI toggle for objectives, but keep for completeness
+            }
+
+            if (autoSelected.length > 0 && selectedContentTypes.length === 0) {
+                console.log('🔧 Auto-selecting content types based on returned content:', autoSelected);
+                setSelectedContentTypes(autoSelected);
+            }
+        } catch (e) {
+            console.error('Error auto-selecting content types:', e);
+        }
+
+        // Persist to session history: if a session history exists, append; otherwise create new
+        try {
+            const sessionId = sessionStorage.getItem('studygenie_session_id');
+            const rawHistory = sessionStorage.getItem('studygenie_session_history');
+            const existingHistory = rawHistory ? JSON.parse(rawHistory) : [];
+
+            // Append the new actualContent to history
+            existingHistory.push(actualContent);
+
+            // Store updated history and latest content
+            sessionStorage.setItem('studygenie_session_history', JSON.stringify(existingHistory));
+            sessionStorage.setItem('studygenie_learning_content', JSON.stringify(actualContent));
+            if (sessionId) sessionStorage.setItem('studygenie_session_id', sessionId);
+
+            // Update local state so UI shows appended history
+            setSessionHistory(existingHistory);
+        } catch (e) {
+            console.error('Error updating session history in sessionStorage:', e);
+        }
+
         setLearningContent(actualContent);
+        // Only auto-hide when the generated content actually contains useful learning output
+        const hasUsefulContent = !!(
+            (actualContent?.flashcards && actualContent.flashcards.length > 0) ||
+            (actualContent?.quiz && actualContent.quiz.length > 0) ||
+            actualContent?.summary ||
+            actualContent?.match_the_following ||
+            (actualContent?.learning_objectives && actualContent.learning_objectives.length > 0)
+        );
+
+        if (hasUsefulContent) {
+            // clear any existing timeout
+            if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
+            hideTimeoutRef.current = window.setTimeout(() => {
+                setAssistantOpen(false);
+                hideTimeoutRef.current = null;
+            }, 1500);
+        }
         console.log('🎯 State updated, new learningContent should be:', actualContent);
     };
+
+    // Clear pending timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (hideTimeoutRef.current) {
+                window.clearTimeout(hideTimeoutRef.current);
+                hideTimeoutRef.current = null;
+            }
+        };
+    }, []);
 
     // Function to clear session storage and reset content
     const clearSession = () => {
         try {
             sessionStorage.removeItem(LEARNING_CONTENT_KEY);
             sessionStorage.removeItem(SELECTED_CONTENT_TYPES_KEY);
+            sessionStorage.removeItem('studygenie_session_id');
             setLearningContent(null);
             setSelectedContentTypes([]);
             console.log('🗑️ Cleared session storage and reset content');
@@ -288,7 +422,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         );
     };
 
-    return (
+    return (<>
         <AppLayout
             title="Study Interface"
             subtitle={`AI-powered learning companion • ${currentUser?.name || 'Welcome'}`}
@@ -296,92 +430,8 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         >
             <div className="w-full px-4 lg:px-6 py-6">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full w-full">
-                    {/* Left Panel - AI Assistant (35%) */}
-                    <div className="lg:col-span-4 space-y-4">
-                        {/* API Key Warning */}
-                        {!hasActiveApiKey && (
-                            <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800">
-                                <CardContent className="pt-6">
-                                    <div className="flex items-center space-x-3">
-                                        <Settings className="h-5 w-5 text-amber-600" />
-                                        <div>
-                                            <h3 className="font-semibold text-amber-800 dark:text-amber-200">API Key Required</h3>
-                                            <p className="text-amber-700 dark:text-amber-300 text-sm">
-                                                Please add an API key in settings to use AI features.
-                                            </p>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => navigate('/settings')}
-                                                className="mt-2"
-                                            >
-                                                Go to Settings
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Content Type Toggle Buttons */}
-                        <Card className="glass-effect border-border">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-sm font-semibold">Content Type</CardTitle>
-                                <p className="text-xs text-muted-foreground">
-                                    Select what you want to generate
-                                </p>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="flex flex-wrap gap-2">
-                                    {contentTypes.map((type) => (
-                                        <Button
-                                            key={type.id}
-                                            variant={selectedContentTypes.includes(type.id) ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => toggleContentType(type.id)}
-                                            className="flex items-center space-x-1"
-                                        >
-                                            <type.icon className="h-3 w-3" />
-                                            <span className="text-xs">{type.label}</span>
-                                        </Button>
-                                    ))}
-                                </div>
-                                {selectedContentTypes.length > 0 && (
-                                    <p className="text-xs text-muted-foreground mt-2">
-                                        Selected: {selectedContentTypes.map(id =>
-                                            contentTypes.find(t => t.id === id)?.label
-                                        ).join(', ')}
-                                    </p>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {/* AI Assistant with Integrated File Upload */}
-                        <Card className="glass-effect border-border h-full">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="flex items-center space-x-2 text-lg font-semibold">
-                                    <Brain className="h-5 w-5 text-primary" />
-                                    <span>AI Study Assistant</span>
-                                </CardTitle>
-                                <p className="text-sm text-muted-foreground">
-                                    Upload files and ask questions. Select content types above or type specific requests.
-                                </p>
-                            </CardHeader>
-                            <CardContent className="h-full">
-                                <IntegratedAIAssistant
-                                    disabled={!hasActiveApiKey}
-                                    onContentGenerated={handleContentGenerated}
-                                    studentId={studentId}
-                                    studentName={studentName}
-                                    gradeLevel={gradeLevel}
-                                    selectedContentTypes={selectedContentTypes}
-                                />
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Right Panel - Generated Content (65%) */}
-                    <div className="lg:col-span-8 space-y-4">
+                    {/* Right Panel - Generated Content (full width) */}
+                    <div className={`lg:col-span-12 space-y-4`}>
                         {learningContent ? (
                             <div className="space-y-4">
                                 {/* Content Header */}
@@ -400,6 +450,14 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                                     className="text-xs"
                                                 >
                                                     Clear Session
+                                                </Button>
+                                                <Button
+                                                    variant="default"
+                                                    size="sm"
+                                                    onClick={clearSession}
+                                                    className="text-xs ml-2"
+                                                >
+                                                    Learn New
                                                 </Button>
                                             </div>
                                         </div>
@@ -495,6 +553,53 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                         </CardContent>
                                     </Card>
                                 )}
+
+                                {/* Session History Panel */}
+                                {sessionHistory && sessionHistory.length > 0 && (
+                                    <Card className="glass-effect border-border">
+                                        <CardHeader className="pb-3">
+                                            <div className="flex items-center justify-between">
+                                                <CardTitle className="text-base font-semibold">Session History</CardTitle>
+                                                <div>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="text-xs mr-2"
+                                                        onClick={() => {
+                                                            // Clear stored history
+                                                            sessionStorage.removeItem('studygenie_session_history');
+                                                            setSessionHistory([]);
+                                                            toast({ title: 'Session history cleared' });
+                                                        }}
+                                                    >
+                                                        Clear History
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <ul className="space-y-2">
+                                                {sessionHistory.map((item: any, idx: number) => (
+                                                    <li key={idx} className="flex items-center justify-between p-2 border rounded">
+                                                        <div className="text-sm">
+                                                            <div className="font-medium">{item.metadata?.subject_name || item.metadata?.chapter_name || `Item ${idx + 1}`}</div>
+                                                            <div className="text-xs text-muted-foreground">{item.summary ? item.summary.substring(0, 80) : 'No summary available'}</div>
+                                                        </div>
+                                                        <div className="flex items-center space-x-2">
+                                                            <Button size="sm" variant="default" onClick={() => {
+                                                                // Load this item into main view
+                                                                setLearningContent(item);
+                                                                sessionStorage.setItem('studygenie_learning_content', JSON.stringify(item));
+                                                            }}>
+                                                                Load
+                                                            </Button>
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </CardContent>
+                                    </Card>
+                                )}
                             </div>
                         ) : (
                             <Card className="glass-effect border-border h-full flex items-center justify-center">
@@ -517,5 +622,30 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                 </div>
             </div>
         </AppLayout>
-    );
+
+        {/* Compact bottom prompt bar (re-using IntegratedAIAssistant) - shows only when assistantOpen */}
+        {assistantOpen && (
+          <IntegratedAIAssistant
+              disabled={!hasActiveApiKey}
+              onContentGenerated={handleContentGenerated}
+              studentId={studentId}
+              studentName={studentName}
+              gradeLevel={gradeLevel}
+          />
+        )}
+
+        {/* Gray round toggle button (bottom-right) to open/close assistant */}
+        <div className="fixed bottom-6 right-6 z-50">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setAssistantOpen(prev => !prev)}
+            className="h-12 w-12 rounded-full bg-muted/20 border border-border/20 shadow-md"
+            aria-label={assistantOpen ? 'Close assistant' : 'Open assistant'}
+          >
+            {assistantOpen ? <XIcon className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
+          </Button>
+        </div>
+
+    </>);
 };

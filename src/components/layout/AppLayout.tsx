@@ -41,6 +41,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
         { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, path: '/recommendations' },
         { id: 'analytics', label: 'Analytics', icon: TrendingUp, path: '/analytics' },
+        { id: 'learning-history', label: 'Learning History', icon: BookOpen, path: '/sessions' },
         { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' }
     ];
 

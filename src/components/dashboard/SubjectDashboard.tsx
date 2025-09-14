@@ -163,8 +163,8 @@ export const SubjectDashboard: React.FC<SubjectDashboardProps> = ({
                 </Card>
             </div>
 
-            {/* Subjects Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Subjects Grid - 4 cards per row on large screens */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {subjects.map((subject, index) => (
                     <Dialog key={index}>
                         <DialogTrigger asChild>
@@ -182,16 +182,17 @@ export const SubjectDashboard: React.FC<SubjectDashboardProps> = ({
                                 <CardContent className="pt-0">
                                     <div className="space-y-4">
                                         {/* Progress Bar */}
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-muted-foreground">Progress</span>
-                                                <span className="font-medium">{Math.round(subject.mastery_percentage)}%</span>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-muted-foreground">Progress</span>
+                                                    <span className="font-medium">{Math.round(subject.mastery_percentage)}%</span>
+                                                </div>
+                                                {/* If chapter breakdown missing, use total_concepts to show progress */}
+                                                <Progress
+                                                    value={subject.mastery_percentage}
+                                                    className="h-2"
+                                                />
                                             </div>
-                                            <Progress
-                                                value={subject.mastery_percentage}
-                                                className="h-2"
-                                            />
-                                        </div>
 
                                         {/* Stats */}
                                         <div className="grid grid-cols-2 gap-4 text-sm">
@@ -269,45 +270,51 @@ export const SubjectDashboard: React.FC<SubjectDashboardProps> = ({
                                         <span>Concepts by Chapter</span>
                                     </h3>
 
-                                    {Object.entries(subject.chapters).map(([chapterName, chapterData]) => (
-                                        <Card key={chapterName} className="border-l-4 border-l-primary">
-                                            <CardHeader className="pb-3">
-                                                <CardTitle className="text-base">{chapterName}</CardTitle>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <div className="grid gap-3">
-                                                    {(chapterData.concepts || []).map((concept, conceptIndex) => (
-                                                        <div
-                                                            key={conceptIndex}
-                                                            className={`flex items-center justify-between p-3 rounded-lg transition-colors ${getConceptBackgroundColor(concept.status, concept.mastery_score)}`}
-                                                        >
-                                                            <div className="flex items-center space-x-3">
-                                                                {getConceptStatusIcon(concept.status, concept.mastery_score)}
-                                                                <div>
-                                                                    <div className={`font-medium ${getConceptTextColor(concept.status, concept.mastery_score)}`}>
-                                                                        {concept.concept_name || 'Unnamed Concept'}
-                                                                    </div>
-                                                                    <div className="text-sm text-gray-400">
-                                                                        {concept.attempts_count || 0} attempts • Last: {formatLastPracticed(concept.last_practiced)}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center space-x-3">
-                                                                <Badge
-                                                                    className={getConceptStatusColor(concept.status, concept.mastery_score)}
+                                    {Object.keys(subject.chapters || {}).length === 0 ? (
+                                        <div className="p-4 text-center text-muted-foreground">No chapter breakdown available for this subject yet.</div>
+                                    ) : (
+                                        Object.entries(subject.chapters || {}).map(([chapterName, chapterData]) => {
+                                            return (
+                                                <Card key={chapterName} className="border-l-4 border-l-primary">
+                                                    <CardHeader className="pb-3">
+                                                        <CardTitle className="text-base">{chapterName}</CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="grid gap-3">
+                                                            {(chapterData.concepts || []).map((concept, conceptIndex) => (
+                                                                <div
+                                                                    key={conceptIndex}
+                                                                    className={`flex items-center justify-between p-3 rounded-lg transition-colors ${getConceptBackgroundColor(concept.status, concept.mastery_score)}`}
                                                                 >
-                                                                    {Math.round(concept.mastery_score || 0)}%
-                                                                </Badge>
-                                                                <div className="w-20">
-                                                                    <Progress value={concept.mastery_score || 0} className="h-2" />
+                                                                    <div className="flex items-center space-x-3">
+                                                                        {getConceptStatusIcon(concept.status, concept.mastery_score)}
+                                                                        <div>
+                                                                            <div className={`font-medium ${getConceptTextColor(concept.status, concept.mastery_score)}`}>
+                                                                                {concept.concept_name || 'Unnamed Concept'}
+                                                                            </div>
+                                                                            <div className="text-sm text-gray-400">
+                                                                                {concept.attempts_count || 0} attempts • Last: {formatLastPracticed(concept.last_practiced)}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center space-x-3">
+                                                                        <Badge
+                                                                            className={getConceptStatusColor(concept.status, concept.mastery_score)}
+                                                                        >
+                                                                            {Math.round(concept.mastery_score || 0)}%
+                                                                        </Badge>
+                                                                        <div className="w-20">
+                                                                            <Progress value={concept.mastery_score || 0} className="h-2" />
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
+                                                            ))}
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    ))}
+                                                    </CardContent>
+                                                </Card>
+                                            );
+                                        })
+                                    )}
                                 </div>
 
                                 {/* Weak Areas for this Subject */}

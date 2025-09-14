@@ -1,4 +1,6 @@
+// frontend/src/types/api.ts
 // Base types
+
 export interface ApiResponse<T = any> {
     data: T;
     message?: string;
@@ -11,24 +13,27 @@ export interface ErrorResponse {
     type?: string;
 }
 
-// Authentication types (updated for Supabase JWT)
+// Authentication types (updated for custom JWT with Google OAuth)
 export interface User {
     id: string;
+    student_id?: string;
+    username?: string;
     email: string;
     name?: string;
     full_name?: string;
     picture?: string;
     grade_level?: string;
-    learning_preferences?: string[];
+    // learning_preferences can be either an array of topics or a structured object
+    learning_preferences?: string[] | Record<string, any>;
     bio?: string;
     created_at: string;
     updated_at: string;
-    // Supabase user fields
+    // JWT fields
+    sub?: string;
     aud?: string;
     exp?: number;
     iat?: number;
     iss?: string;
-    sub?: string;
     role?: string;
     session_id?: string;
 }
@@ -37,7 +42,7 @@ export interface UserProfileUpdate {
     name?: string;
     full_name?: string;
     grade_level?: string;
-    learning_preferences?: string[];
+    learning_preferences?: string[] | Record<string, any>;
     bio?: string;
 }
 
@@ -49,12 +54,10 @@ export interface AuthTokens {
     user?: User;
 }
 
-export interface SupabaseAuthResponse {
-    access_token: string;
-    token_type: string;
-    expires_in: number;
-    refresh_token: string;
+export interface AuthResponse {
     user: User;
+    api_key_status?: Record<string, boolean>;
+    last_updated?: string;
 }
 
 export interface AuthCredentials {
@@ -73,17 +76,31 @@ export interface AuthenticatedUserInfo {
 }
 
 export interface ApiKeyCreate {
-    name: string;
+    // Removed 'name' field as it's not supported by backend schema
     provider_id: string;
     api_key: string;
 }
-// Student types
+// Student types (adjusted for single-user per auth)
 export interface Student {
-    id: string;
-    name: string;
+    student_id: string;
+    username: string;
+    full_name?: string;
     email: string;
     grade_level?: string;
-    learning_preferences?: string[];
+    bio?: string;
+    learning_preferences?: string[] | Record<string, any>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface StudentData {
+    student_id: string;
+    username?: string;
+    full_name?: string;
+    email: string;
+    grade_level?: string;
+    bio?: string;
+    learning_preferences?: string[] | Record<string, any>;
     created_at: string;
     updated_at: string;
 }
@@ -125,18 +142,23 @@ export interface QuizData {
 export interface LearningContent {
     flashcards?: FlashcardData[] | Record<string, FlashcardData>;
     quiz?: QuizData[] | Record<string, QuizData>;
-    match_the_following?: any;
+    // Match-the-following structure: two columns and an array of mapping pairs
+    match_the_following?: {
+        columnA: string[];
+        columnB: string[];
+        mappings: { A: string; B: string }[]; // mapping entries
+    } | null;
     summary?: string;
     learning_objectives?: string[];
-    estimated_study_time?: number;
-    difficulty_level?: 'Beginner' | 'Intermediate' | 'Advanced';
+    estimated_study_time?: number | string;
+    difficulty_level?: 'Beginner' | 'Intermediate' | 'Advanced' | 'Easy' | 'Medium' | 'Hard';
     metadata?: {
         subject_name?: string;
         chapter_name?: string;
         concept_name?: string;
         difficulty_level?: string;
         estimated_study_time?: string;
-    };
+    } | null;
 }
 
 // File processing types
@@ -162,7 +184,7 @@ export interface ProcessFilesResponse {
     estimated_study_time?: string;
 }
 
-// Chat types
+// Chat types (updated for /llm/generate)
 export interface ChatMessage {
     id: string;
     content: string;
@@ -179,17 +201,25 @@ export interface ChatRequest {
     conversation_history?: ChatMessage[];
 }
 
-export interface ChatResponse {
-    message: string;
-    suggestions?: string[];
-    resources?: {
-        title: string;
-        url: string;
-        type: 'article' | 'video' | 'practice';
-    }[];
+export interface LLMRequest {
+    prompt: string;
+    model_id: string;
+    max_tokens?: number;
+    temperature?: number;
+    system_prompt?: string;
 }
 
-// API Key types
+export interface LLMResponse {
+    content: string;
+    model_used: string;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
+}
+
+// API Key types (updated for backend schema)
 export interface ApiKey {
     id: string;
     provider: string;
@@ -199,166 +229,6 @@ export interface ApiKey {
     updated_at: string;
 }
 
-// Analytics types (comprehensive new analytics system)
-export interface DashboardAnalytics {
-    student_id: string;
-    period_days: number;
-    overall_mastery_percentage: number;
-    total_study_time: number;
-    concepts_learned: number;
-    quiz_accuracy: number;
-    study_streak: number;
-    subjects_summary: SubjectSummary[];
-    recent_activities: RecentActivity[];
-    performance_trend: 'improving' | 'declining' | 'stable';
-    recommendations: string[];
-}
-
-export interface SubjectSummary {
-    subject_name: string;
-    mastery_percentage: number;
-    concepts_total: number;
-    concepts_mastered: number;
-    time_spent: number;
-    quiz_accuracy: number;
-    last_studied: string;
-}
-
-export interface SubjectAnalytics {
-    student_id: string;
-    period_days: number;
-    subjects_summary: SubjectSummary[];
-    subjects_detail: Record<string, DetailedSubjectAnalytics>;
-    overall_stats: {
-        total_subjects: number;
-        total_concepts: number;
-        total_mastered: number;
-        average_mastery: number;
-        total_time_spent: number;
-        most_studied_subject: string | null;
-        best_performing_subject: string | null;
-    };
-}
-
-export interface DetailedSubjectAnalytics {
-    mastery_percentage: number;
-    total_concepts: number;
-    mastered_concepts: number;
-    time_spent: number;
-    quiz_accuracy: number;
-    concepts: ConceptProgress[];
-}
-
-export interface ConceptProgress {
-    concept_name: string;
-    chapter_name: string;
-    mastery_score: number;
-    total_attempts: number;
-    correct_answers: number;
-    total_questions: number;
-    last_practiced: string;
-}
-
-export interface WeeklyTrends {
-    weekly_progress: WeeklyProgressData[];
-    trend: 'improving' | 'declining' | 'stable';
-    improvement_rate: number;
-}
-
-export interface WeeklyProgressData {
-    week: string;
-    average_score: number;
-    concepts_learned: number;
-    time_spent: number;
-    quiz_accuracy: number;
-}
-
-export interface Achievement {
-    title: string;
-    icon: string;
-    color: string;
-    points: number;
-}
-
-export interface AchievementsData {
-    achievements: Achievement[];
-    total_points: number;
-    badges_earned: number;
-}
-
-export interface WeaknessAnalysis {
-    weak_concepts: WeakConcept[];
-    weak_subjects: WeakSubject[];
-    improvement_areas: ImprovementArea[];
-    needs_attention: number;
-    priority_actions: ImprovementArea[];
-    overall_weakness_score: number;
-}
-
-export interface WeakConcept {
-    concept_name: string;
-    subject_name: string;
-    chapter_name: string;
-    mastery_score: number;
-    total_attempts: number;
-    accuracy: number;
-}
-
-export interface WeakSubject {
-    subject_name: string;
-    mastery_percentage: number;
-    quiz_accuracy: number;
-    concepts_total: number;
-    concepts_mastered: number;
-    time_spent: number;
-}
-
-export interface ImprovementArea {
-    type: 'subject' | 'concept_group';
-    subject: string;
-    priority: 'high' | 'medium' | 'low';
-    suggestion: string;
-    metrics?: Record<string, number>;
-    weak_concepts_count?: number;
-    average_mastery?: number;
-}
-
-export interface StudyPatterns {
-    daily_study_time: number;
-    peak_study_hours: number[];
-    consistency_score: number;
-    preferred_study_duration: number;
-    break_patterns: {
-        frequency: string;
-        duration: number;
-    };
-    learning_velocity: {
-        concepts_per_hour: number;
-        retention_rate: number;
-    };
-    study_habits: {
-        morning_study: number;
-        evening_study: number;
-        weekend_study: number;
-        consistency: number;
-    };
-    performance_trends: {
-        improving_subjects: string[];
-        declining_subjects: string[];
-        stable_subjects: string[];
-    };
-}
-
-export interface RecentActivity {
-    type: 'study' | 'quiz' | 'review';
-    subject: string;
-    concept?: string;
-    duration: number;
-    score?: number;
-    timestamp: string;
-}
-
-// API Key types (updated for new provider system)
 export interface ApiKeyData {
     id: string;
     provider_id: string;
@@ -367,12 +237,6 @@ export interface ApiKeyData {
     is_active: boolean;
     created_at: string;
     updated_at: string;
-}
-
-export interface ApiKeyCreate {
-    provider_id: string;
-    api_key: string;
-    // Note: key_name not supported by database schema
 }
 
 export interface ApiKeyResponse {
@@ -414,7 +278,7 @@ export interface LLMModel {
     is_active: boolean;
 }
 
-// Model preference types
+// Model preference types (backend not implemented, keeping for future)
 export interface ModelPreference {
     id: string;
     student_id: string;
@@ -485,4 +349,181 @@ export interface HealthCheck {
     status: string;
     message: string;
     timestamp?: string;
+}
+
+// Analytics types (updated to match backend response structure)
+export interface AnalyticsResponse<T> {
+    success: boolean;
+    data: T;
+}
+
+export interface DashboardAnalytics {
+    student_id: string;
+    period_days: number;
+    overall_mastery_percentage: number;
+    total_study_time: number;
+    concepts_learned: number;
+    quiz_accuracy: number;
+    study_streak: number;
+    subjects_summary: SubjectSummary[];
+    recent_activities: RecentActivity[];
+    performance_trend: 'improving' | 'declining' | 'stable';
+    recommendations: string[];
+    subjects_analytics?: Record<string, DetailedSubjectAnalytics>;
+    concept_progress?: ConceptProgress[];
+    total_concepts?: number;
+    mastered_concepts?: number;
+    total_time_spent?: number;
+}
+
+export interface SubjectSummary {
+    subject_name: string;
+    mastery_percentage: number;
+    concepts_total: number;
+    concepts_mastered: number;
+    time_spent: number;
+    quiz_accuracy: number;
+    last_studied: string;
+}
+
+export interface SubjectAnalytics {
+    student_id: string;
+    period_days: number;
+    subjects_summary: SubjectSummary[];
+    subjects_detail: Record<string, DetailedSubjectAnalytics>;
+    overall_stats: {
+        total_subjects: number;
+        total_concepts: number;
+        total_mastered: number;
+        average_mastery: number;
+        total_time_spent: number;
+        most_studied_subject: string | null;
+        best_performing_subject: string | null;
+    };
+}
+
+export interface DetailedSubjectAnalytics {
+    mastery_percentage: number;
+    total_concepts: number;
+    mastered_concepts: number;
+    time_spent: number;
+    quiz_accuracy: number;
+    concepts: ConceptProgress[];
+}
+
+export interface ConceptProgress {
+    concept_name: string;
+    chapter_name: string;
+    mastery_score: number;
+    total_attempts: number;
+    correct_answers: number;
+    total_questions: number;
+    last_practiced: string;
+    subject_name?: string;
+    subject_id?: number;
+}
+
+export interface WeeklyTrends {
+    weekly_progress: WeeklyProgressData[];
+    trend: 'improving' | 'declining' | 'stable';
+    improvement_rate: number;
+}
+
+export interface WeeklyProgressData {
+    week: string;
+    average_score: number;
+    concepts_learned: number;
+    time_spent: number;
+    quiz_accuracy: number;
+}
+
+export interface Achievement {
+    title: string;
+    icon: string;
+    color: string;
+    points: number;
+    description?: string;
+}
+
+export interface AchievementsData {
+    achievements: Achievement[];
+    total_points: number;
+    badges_earned: number;
+    student_stats: {
+        concepts_completed: number;
+        overall_mastery: number;
+    };
+}
+
+export interface WeaknessAnalysis {
+    weak_concepts: WeakConcept[];
+    weak_subjects: WeakSubject[];
+    improvement_areas: ImprovementArea[];
+    needs_attention: number;
+    priority_actions: ImprovementArea[];
+    overall_weakness_score: number;
+}
+
+export interface WeakConcept {
+    concept_name: string;
+    subject_name: string;
+    chapter_name: string;
+    mastery_score: number;
+    total_attempts: number;
+    accuracy: number;
+}
+
+export interface WeakSubject {
+    subject_name: string;
+    mastery_percentage: number;
+    quiz_accuracy: number;
+    concepts_total: number;
+    concepts_mastered: number;
+    time_spent: number;
+}
+
+export interface ImprovementArea {
+    type: 'subject' | 'concept_group';
+    subject: string;
+    priority: 'high' | 'medium' | 'low';
+    suggestion: string;
+    metrics?: Record<string, number>;
+    weak_concepts_count?: number;
+    average_mastery?: number;
+}
+
+export interface StudyPatterns {
+    daily_study_time: number;
+    peak_study_hours: number[];
+    consistency_score: number;
+    preferred_study_duration: number;
+    break_patterns: {
+        frequency: string;
+        duration: number;
+    };
+    learning_velocity: {
+        concepts_per_hour: number;
+        retention_rate: number;
+    };
+    study_habits: {
+        total_study_time: number;
+        average_session_length: number;
+        most_active_period: string;
+        consistency: number;
+    };
+    performance_metrics: {
+        total_concepts_studied: number;
+        concepts_mastered: number;
+        overall_mastery_rate: number;
+        study_efficiency: number;
+    };
+}
+
+export interface RecentActivity {
+    type: 'study' | 'quiz' | 'review';
+    subject: string;
+    concept?: string;
+    duration: number;
+    score?: number;
+    timestamp: string;
 }

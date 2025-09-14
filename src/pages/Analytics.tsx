@@ -4,6 +4,8 @@ import { ProgressChart } from '@/components/charts/ProgressChart';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCurrentUser, useDashboardAnalytics, useProgressAnalytics, useWeaknessAnalysis, useWeeklyTrends } from '@/hooks/useApi';
+import { useRecentSessions, useDeleteSession } from '@/hooks/useApi';
+import RecentSessions from '@/components/RecentSessions';
 import { TrendingUp, BarChart3 } from 'lucide-react';
 
 const AnalyticsPage: React.FC = () => {
@@ -43,7 +45,7 @@ const AnalyticsPage: React.FC = () => {
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
                         <p className="mt-4 text-muted-foreground">Loading analytics data...</p>
                     </div>
-                ) : hasError ? (
+                ) : hasError ? (<>
                     <Card className="glass-effect">
                         <CardContent className="text-center py-12">
                             <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -52,8 +54,17 @@ const AnalyticsPage: React.FC = () => {
                                 {dashboardError?.message || progressError?.message || trendsError?.message || weaknessError?.message || 'Please try again later'}
                             </p>
                         </CardContent>
-                    </Card>
-                ) : (
+                        </Card>
+                        {/* Recent Learning Sessions */}
+                        <Card className="glass-effect">
+                            <CardHeader>
+                                <CardTitle>Recent Learning Sessions</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <RecentSessions />
+                            </CardContent>
+            </Card>
+        </>) : (
                     <div className="space-y-6">
                         {/* Main Analytics Dashboard */}
                         <AnalyticsDashboard
@@ -114,5 +125,7 @@ const AnalyticsPage: React.FC = () => {
         </AppLayout>
     );
 };
+
+// use extracted RecentSessions component
 
 export default AnalyticsPage;

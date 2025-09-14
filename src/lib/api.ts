@@ -1,4 +1,6 @@
+// frontend/src/lib/api.ts
 // API configuration and base URL
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // API client class for making requests to the backend
@@ -30,25 +32,43 @@ class ApiClient {
     ): Promise<T> {
         const url = `${this.baseURL}${endpoint}`;
 
+        // If the body is a FormData instance, do NOT set a Content-Type header
+        // so the browser can set the correct multipart/form-data boundary.
+        const isFormDataBody = options.body instanceof FormData;
+
         const config: RequestInit = {
+            // Spread other options first so callers can override method/body/etc.
+            ...options,
             headers: {
-                'Content-Type': 'application/json',
+                // Only set JSON content type for non-FormData bodies
+                ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
                 ...(this.token && { Authorization: `Bearer ${this.token}` }),
+                // Merge any caller-provided headers (these can override defaults)
                 ...options.headers,
             },
-            ...options,
         };
 
         try {
             const response = await fetch(url, config);
 
             if (!response.ok) {
+                // Try to parse structured error body and include it in the thrown Error
                 const errorData = await response.json().catch(() => null);
-                throw new Error(
-                    errorData?.detail ||
-                    errorData?.message ||
-                    `HTTP ${response.status}: ${response.statusText}`
-                );
+                let message: string;
+                if (!errorData) {
+                    message = `HTTP ${response.status}: ${response.statusText}`;
+                } else if (typeof errorData === 'string') {
+                    message = errorData;
+                } else {
+                    // Prefer common properties, else stringify the whole body
+                    message = (errorData.detail || errorData.message) ? (errorData.detail || errorData.message) : JSON.stringify(errorData);
+                }
+
+                // Attach status for easier debugging
+                const err = new Error(message);
+                // @ts-ignore - attach extra debug info
+                err.status = response.status;
+                throw err;
             }
 
             return await response.json();
@@ -111,111 +131,85 @@ class ApiClient {
 // Create a singleton instance
 export const apiClient = new ApiClient();
 
-// API endpoints
+// API endpoints (updated to match backend routes, removed trailing slashes)
 export const API_ENDPOINTS = {
     // Health check
     health: '/health',
 
-    // Authentication (updated for new Supabase JWT system)
+    // Authentication (OAuth with custom JWT)
     auth: {
-        signUp: '/api/v1/auth/sign-up',
-        signIn: '/api/v1/auth/login', // Fixed: use the actual OAuth login endpoint
-        signOut: '/api/v1/auth/sign-out',
-        refresh: '/api/v1/auth/refresh',
-        me: '/api/v1/auth/profile', // Updated to match backend route
-        protected: '/api/v1/auth/protected',
-        verify: '/api/v1/auth/verify', // Keep for backward compatibility
-        login: '/api/v1/auth/login', // OAuth login endpoint
-        callback: '/api/v1/auth/callback', // Keep if needed for OAuth
+        login: '/api/v1/auth/login', // GET for OAuth redirect
+        callback: '/api/v1/auth/callback', // GET for OAuth callback
+        verify: '/api/v1/auth/verify', // POST for token verification
+        profile: '/api/v1/auth/profile', // GET for user profile
     },
 
-    // LLM services (updated for new functional structure)
+    // Student (single current user)
+    student: {
+        getCurrent: '/api/v1/student',
+        update: '/api/v1/student',
+        delete: '/api/v1/student',
+        progress: '/api/v1/student/progress', // Assuming sub-endpoint if exists
+    },
+
+    // LLM services
     llm: {
-        processFiles: '/api/v1/llm/process-files',
-        chatResponse: '/api/v1/llm/chat-response',
-        generateContent: '/api/v1/llm/generate-content',
-        generateStructured: '/api/v1/llm/generate-structured',
-        providers: '/api/v1/llm/providers',
-        models: '/api/v1/llm/models',
-        capabilities: '/api/v1/llm/capabilities',
+        generate: '/api/v1/llm/generate',
+        studyContent: '/api/v1/llm/study-content',
+        qa: '/api/v1/llm/qa',
+        userProviders: '/api/v1/llm/providers',
+        userModels: '/api/v1/llm/models',
+        systemProviders: '/api/v1/llm/system/providers',
+        processFiles: '/api/v1/llm/process-files', // Assuming exists
     },
 
-    // Students (updated for new functional structure)
-    students: {
-        list: '/api/v1/students',
-        create: '/api/v1/students',
-        getById: (id: string) => `/api/v1/students/${id}`,
-        update: (id: string) => `/api/v1/students/${id}`,
-        delete: (id: string) => `/api/v1/students/${id}`,
-        progress: (id: string) => `/api/v1/students/${id}/progress`,
-        recommendations: (id: string) => `/api/v1/students/${id}/recommendations`,
-        analytics: (id: string) => `/api/v1/students/${id}/analytics`,
-        saveLearningActivity: (id: string) => `/api/v1/students/${id}/learning-activity`,
-    },
-
-    // User profile (kept for compatibility)
-    users: {
-        me: '/api/v1/auth/profile', // Updated to match backend route
-        updateProfile: '/api/v1/users/me',
-        deleteProfile: '/api/v1/users/me',
-    },
-
-    // API Keys (updated for new functional structure)
+    // API Keys
     apiKeys: {
         list: '/api/v1/api-keys',
         create: '/api/v1/api-keys',
         delete: (id: string) => `/api/v1/api-keys/${id}`,
         status: (provider: string) => `/api/v1/api-keys/providers/${provider}/status`,
-        checkProvider: (provider: string) => `/api/v1/api-keys/providers/${provider}/status`,
     },
 
-    // Analytics (updated for new comprehensive analytics)
-    analytics: {
-        dashboard: (studentId: string, days?: number) => 
-            `/api/v1/analytics/${studentId}/dashboard${days ? `?days=${days}` : ''}`,
-        subjects: (studentId: string, days?: number) => 
-            `/api/v1/analytics/${studentId}/subjects${days ? `?days=${days}` : ''}`,
-        progress: (studentId: string, subjectId?: number) => 
-            `/api/v1/analytics/${studentId}/progress${subjectId ? `?subject_id=${subjectId}` : ''}`,
-        achievements: (studentId: string) => 
-            `/api/v1/analytics/${studentId}/achievements`,
-        weeklyTrends: (studentId: string, weeks?: number) => 
-            `/api/v1/analytics/${studentId}/weekly-trends${weeks ? `?weeks=${weeks}` : ''}`,
-        weaknesses: (studentId: string) => 
-            `/api/v1/analytics/${studentId}/weaknesses`,
-        studyPatterns: (studentId: string, days?: number) => 
-            `/api/v1/analytics/${studentId}/study-patterns${days ? `?days=${days}` : ''}`,
-        
-        // Legacy endpoints for backward compatibility
-        weeklyTrendsLegacy: (studentId: string) => `/api/analytics/${studentId}/weekly-trends`,
-        dashboardLegacy: (studentId: string) => `/api/analytics/${studentId}/dashboard`,
-    },
-
-    // Provider management (new endpoints)
+    // Providers
     providers: {
         list: '/api/v1/providers',
-        create: '/api/v1/providers',
-        getById: (id: string) => `/api/v1/providers/${id}`,
-        update: (id: string) => `/api/v1/providers/${id}`,
-        delete: (id: string) => `/api/v1/providers/${id}`,
-        models: (id: string) => `/api/v1/providers/${id}/models`,
+        modelsByProvider: (provider: string) => `/api/v1/providers/${provider}/models`,
+        modelsChat: '/api/v1/providers/models/chat',
+        modelsEmbedding: '/api/v1/providers/models/embedding',
+        modelById: (modelId: string) => `/api/v1/providers/models/${modelId}`,
+        availableChat: '/api/v1/providers/models/available/chat',
+        availableEmbedding: '/api/v1/providers/models/available/embedding',
+        availableAll: '/api/v1/providers/models/available',
     },
 
-    // Model management (new endpoints)
-    models: {
-        list: '/api/v1/models',
-        getById: (id: string) => `/api/v1/models/${id}`,
-        byProvider: (providerId: string) => `/api/v1/providers/${providerId}/models`,
-        byType: (type: string) => `/api/v1/models?type=${type}`,
+    // Analytics (with path param for student_identifier, but for current user can use without or resolve)
+    analytics: {
+        dashboard: (studentId?: string, days?: number) => 
+            studentId ? `/api/v1/analytics/${studentId}/dashboard${days ? `?days=${days}` : ''}` : '/api/v1/analytics/dashboard',
+        subjects: (studentId?: string, days?: number) => 
+            studentId ? `/api/v1/analytics/${studentId}/subjects${days ? `?days=${days}` : ''}` : '/api/v1/analytics/subjects',
+        progress: (studentId?: string, subjectId?: number) => {
+            const base = studentId ? `/api/v1/analytics/${studentId}/progress` : '/api/v1/analytics/progress';
+            return subjectId ? `${base}?subject_id=${subjectId}` : base;
+        },
+        achievements: (studentId?: string) => 
+            studentId ? `/api/v1/analytics/${studentId}/achievements` : '/api/v1/analytics/achievements',
+        weeklyTrends: (studentId?: string, weeks?: number) => 
+            studentId ? `/api/v1/analytics/${studentId}/weekly-trends${weeks ? `?weeks=${weeks}` : ''}` : '/api/v1/analytics/weekly-trends',
+        weaknesses: (studentId?: string) => 
+            studentId ? `/api/v1/analytics/${studentId}/weaknesses` : '/api/v1/analytics/weaknesses',
+        studyPatterns: (studentId?: string, days?: number) => 
+            studentId ? `/api/v1/analytics/${studentId}/study-patterns${days ? `?days=${days}` : ''}` : '/api/v1/analytics/study-patterns',
     },
 
-    // User Model Preferences (new endpoints)
+    // Model preferences (not implemented in backend, stubs - consider removing calls if causing 404)
     modelPreferences: {
         list: '/api/v1/model-preferences',
         create: '/api/v1/model-preferences',
         update: (id: string) => `/api/v1/model-preferences/${id}`,
         delete: (id: string) => `/api/v1/model-preferences/${id}`,
-        setDefault: (modelId: string, useCase: string) => `/api/v1/model-preferences/default?model_id=${modelId}&use_case=${useCase}`,
+        setDefault: (modelId: string, useCase: string) => `/api/v1/model-preferences/default/${modelId}/${useCase}`,
     },
 } as const;
 

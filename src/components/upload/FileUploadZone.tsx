@@ -254,33 +254,28 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       {/* Upload Zone */}
       <Card
         className={`border-2 border-dashed transition-all duration-200 ${isDragging
-          ? 'border-primary bg-primary/5 scale-105'
+          ? 'border-primary bg-primary/5 scale-101'
           : disabled
             ? 'border-muted bg-muted/5 opacity-50'
-            : 'border-muted-foreground/25 hover:border-primary/50'
+            : 'border-muted-foreground/20 hover:border-primary/50'
           }`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
-        <CardContent className="p-8 text-center">
-          <div className="flex flex-col items-center space-y-4">
-            <div className={`p-4 rounded-full ${isDragging ? 'bg-primary/10' : 'bg-muted/20'
-              }`}>
-              <Upload className={`h-8 w-8 ${isDragging ? 'text-primary' : 'text-muted-foreground'
-                }`} />
-            </div>
-
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium">
-                {isDragging ? 'Drop files here' : 'Upload study materials'}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {disabled
-                  ? 'Please configure your API key to upload files'
-                  : 'Drag & drop files here, or click to browse'
-                }
-              </p>
+        {/* Compact upload area: smaller padding and a single full-width button */}
+        <CardContent className="p-4">
+          <div className="flex flex-col items-stretch space-y-3">
+            <div className="flex items-center space-x-3">
+              <Upload className={`h-5 w-5 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />
+              <div>
+                <h3 className="text-sm font-medium">
+                  {isDragging ? 'Drop files here' : 'Upload study materials'}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {disabled ? 'Please configure your API key to upload files' : 'Drag & drop files or use the button below'}
+                </p>
+              </div>
             </div>
 
             {!disabled && (
@@ -288,10 +283,9 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
                 <Button
                   variant="outline"
                   onClick={() => document.getElementById('file-input')?.click()}
-                  className="mt-4"
+                  className="w-full py-2"
                 >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Choose Files
+                  Choose files to upload
                 </Button>
 
                 <input

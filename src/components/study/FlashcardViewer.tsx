@@ -39,6 +39,8 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
   disabled = false,
   onSessionComplete
 }) => {
+  // Debug incoming props
+  console.log('FlashcardViewer mounted. incoming flashcards prop:', flashcardsData);
   const [currentCard, setCurrentCard] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [studiedCards, setStudiedCards] = useState<Set<number>>(new Set());
@@ -51,83 +53,52 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
     setStartTime(new Date());
   }, []);
 
-  // Sample flashcards (fallback if no data provided)
-  const defaultFlashcards: Flashcard[] = [
-    {
-      id: 1,
-      question: "What is the fundamental theorem of calculus?",
-      answer: "The fundamental theorem of calculus establishes the relationship between differentiation and integration. It states that differentiation and integration are inverse operations.",
-      difficulty: "Hard",
-      subject: "Mathematics"
-    },
-    {
-      id: 2,
-      question: "What is photosynthesis?",
-      answer: "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce glucose and oxygen. The general equation is: 6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂",
-      difficulty: "Medium",
-      subject: "Biology"
-    },
-    {
-      id: 3,
-      question: "Define Newton's first law of motion",
-      answer: "Newton's first law states that an object at rest stays at rest and an object in motion stays in motion with the same speed and in the same direction unless acted upon by an unbalanced force.",
-      difficulty: "Easy",
-      subject: "Physics"
-    },
-    {
-      id: 4,
-      question: "What is the periodic table?",
-      answer: "The periodic table is a tabular arrangement of chemical elements, ordered by their atomic number, electron configuration, and recurring chemical properties. Elements in the same column have similar properties.",
-      difficulty: "Medium",
-      subject: "Chemistry"
-    },
-    {
-      id: 5,
-      question: "What is DNA?",
-      answer: "DNA (Deoxyribonucleic acid) is a double-stranded molecule that carries genetic information in living organisms. It consists of four bases: Adenine (A), Thymine (T), Guanine (G), and Cytosine (C).",
-      difficulty: "Medium",
-      subject: "Biology"
-    }
-  ];
 
   // Convert provided flashcards data to the expected format or use defaults
   const flashcards: Flashcard[] = React.useMemo(() => {
+    let processed: Flashcard[] = [];
     if (flashcardsData) {
       // Handle array of flashcards directly
       if (Array.isArray(flashcardsData)) {
-        return flashcardsData.map((card, index) => ({
+        processed = flashcardsData.map((card, index) => ({
           id: index + 1,
           question: card.question || `Question ${index + 1}`,
           answer: card.answer || `Answer ${index + 1}`,
           difficulty: card.difficulty || 'Medium',
-          subject: card.key_concepts || 'Study Material'
+          subject: card.key_concepts || card.subject || 'Study Material'
         }));
       }
       // Handle object with flashcards array
       else if (typeof flashcardsData === 'object' && flashcardsData.flashcards) {
-        return flashcardsData.flashcards.map((card: any, index: number) => ({
+        processed = flashcardsData.flashcards.map((card: any, index: number) => ({
           id: index + 1,
           question: card.question || `Question ${index + 1}`,
           answer: card.answer || `Answer ${index + 1}`,
           difficulty: card.difficulty || 'Medium',
-          subject: card.key_concepts || 'Study Material'
+          subject: card.key_concepts || card.subject || 'Study Material'
         }));
       }
       // Handle object entries (legacy format)
       else if (typeof flashcardsData === 'object') {
-        return Object.entries(flashcardsData).map(([key, card]: [string, any], index) => ({
+        processed = Object.entries(flashcardsData).map(([key, card]: [string, any], index) => ({
           id: index + 1,
           question: card.question || `Question ${index + 1}`,
           answer: card.answer || `Answer ${index + 1}`,
           difficulty: card.difficulty || 'Medium',
-          subject: 'Study Material'
+          subject: card.key_concepts || card.subject || 'Study Material'
         }));
       }
     }
-    return defaultFlashcards;
+
+    console.log('FlashcardViewer processed flashcards array:', processed);
+    return processed;
   }, [flashcardsData]);
 
   const currentCardData = flashcards[currentCard];
+
+  useEffect(() => {
+    console.log('FlashcardViewer currentCard index:', currentCard, 'currentCardData:', currentCardData);
+  }, [currentCard, currentCardData]);
 
   const handleFlip = () => {
     setIsFlipped(!isFlipped);
@@ -252,8 +223,22 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
     }
   };
 
-  const progress = ((currentCard + 1) / flashcards.length) * 100;
-  const studyProgress = (studiedCards.size / flashcards.length) * 100;
+  const progress = flashcards.length > 0 ? ((currentCard + 1) / flashcards.length) * 100 : 0;
+  const studyProgress = flashcards.length > 0 ? (studiedCards.size / flashcards.length) * 100 : 0;
+
+  // If there are no flashcards, render a helpful message and exit early
+  if (!flashcards || flashcards.length === 0) {
+    return (
+      <div className="space-y-6">
+        <Card className="glass-effect border-0">
+          <CardContent className="p-4 text-center">
+            <div className="text-lg font-medium">No flashcards available</div>
+            <div className="text-sm text-muted-foreground">Check the restored session data in the console to see what was received.</div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
