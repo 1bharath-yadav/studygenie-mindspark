@@ -26,33 +26,62 @@ export function ThemeProvider({
   storageKey = "ui-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
+  const [theme, setThemeState] = useState<Theme>(
     () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
   )
 
   useEffect(() => {
     const root = window.document.documentElement
 
-    root.classList.remove("light", "dark")
+    // Tailwind dark mode is usually driven by the presence of the 'dark' class.
+    // Make 'light' simply the absence of 'dark'. Also expose data-theme for other libs.
+    const applyTheme = (t: Theme) => {
+      try {
+        if (t === 'system') {
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (prefersDark) root.classList.add('dark')
+          else root.classList.remove('dark')
+          root.setAttribute('data-theme', prefersDark ? 'dark' : 'light')
+          return
+        }
 
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light"
-
-      root.classList.add(systemTheme)
-      return
+        if (t === 'dark') {
+          root.classList.add('dark')
+          root.setAttribute('data-theme', 'dark')
+        } else {
+          root.classList.remove('dark')
+          root.setAttribute('data-theme', 'light')
+        }
+      } catch (e) {
+        // Ignore DOM errors in non-browser environments
+      }
     }
 
-    root.classList.add(theme)
+    applyTheme(theme)
+
+    // If user chooses 'system', listen for system changes and re-apply
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => {
+      if (theme === 'system') applyTheme('system')
+    }
+    try {
+      mq.addEventListener?.('change', onChange)
+    } catch (e) {
+      try { mq.addListener?.(onChange) } catch (e) {}
+    }
+
+    return () => {
+      try { mq.removeEventListener?.('change', onChange) } catch (e) {
+        try { mq.removeListener?.(onChange) } catch (e) {}
+      }
+    }
   }, [theme])
 
   const value = {
     theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
+    setTheme: (t: Theme) => {
+      try { localStorage.setItem(storageKey, t); } catch (e) {}
+      setThemeState(t)
     },
   }
 

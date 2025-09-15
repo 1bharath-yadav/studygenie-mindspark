@@ -183,7 +183,7 @@ const ApiManagementSection: React.FC = () => {
                       </div>
                     </div>
                   );
-                }) : <div>No available chat models</div>}
+                }) : <div>select provider to selecct models, use multimodal modals for best experience</div>}
               </>
             )}
           </div>
@@ -224,7 +224,7 @@ const ApiManagementSection: React.FC = () => {
                       </div>
                     </div>
                   );
-                }) : <div>No available embedding models</div>}
+                }) : <div>select provider to select models</div>}
               </>
             )}
           </div>

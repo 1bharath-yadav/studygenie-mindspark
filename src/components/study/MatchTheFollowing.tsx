@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSaveLearningActivity, useStudent } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,8 @@ export const MatchTheFollowing: React.FC<MatchTheFollowingProps> = ({
     data,
     disabled = false
 }) => {
+    const saveActivity = useSaveLearningActivity();
+    const { data: currentStudent } = useStudent();
     console.log('🎲 MatchTheFollowing received data:', data);
 
     const [userMatches, setUserMatches] = useState<{ [key: string]: string }>({});
@@ -68,6 +71,29 @@ export const MatchTheFollowing: React.FC<MatchTheFollowingProps> = ({
         }
         setSubmitted(true);
         setShowResults(true);
+
+        // Persist learning activity for match-the-following
+        try {
+            const score = calculateScore();
+            const payload = {
+                subject_name: 'Study Material',
+                concept_name: undefined,
+                activity_type: 'match_the_following',
+                correct_answers: Math.round((score / 100) * data.columnA.length),
+                total_questions: data.columnA.length,
+                time_spent: 0,
+                difficulty_level: 'Medium'
+            } as any;
+
+            const studentId = currentStudent?.student_id;
+            if (!studentId) {
+                console.warn('No canonical student_id available; skipping saveLearningActivity');
+            } else {
+                saveActivity.mutate({ studentId, activityData: payload });
+            }
+        } catch (e) {
+            console.warn('Failed to save match activity', e);
+        }
     };
 
     const resetExercise = () => {

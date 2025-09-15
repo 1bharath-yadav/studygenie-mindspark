@@ -1,7 +1,7 @@
 // frontend/src/types/api.ts
 // Base types
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
     data: T;
     message?: string;
     status: string;
@@ -24,7 +24,7 @@ export interface User {
     picture?: string;
     grade_level?: string;
     // learning_preferences can be either an array of topics or a structured object
-    learning_preferences?: string[] | Record<string, any>;
+    learning_preferences?: string[] | Record<string, unknown>;
     bio?: string;
     created_at: string;
     updated_at: string;
@@ -42,7 +42,7 @@ export interface UserProfileUpdate {
     name?: string;
     full_name?: string;
     grade_level?: string;
-    learning_preferences?: string[] | Record<string, any>;
+    learning_preferences?: string[] | Record<string, unknown>;
     bio?: string;
 }
 
@@ -88,7 +88,7 @@ export interface Student {
     email: string;
     grade_level?: string;
     bio?: string;
-    learning_preferences?: string[] | Record<string, any>;
+    learning_preferences?: string[] | Record<string, unknown>;
     created_at: string;
     updated_at: string;
 }
@@ -100,7 +100,7 @@ export interface StudentData {
     email: string;
     grade_level?: string;
     bio?: string;
-    learning_preferences?: string[] | Record<string, any>;
+    learning_preferences?: string[] | Record<string, unknown>;
     created_at: string;
     updated_at: string;
 }
@@ -176,7 +176,7 @@ export interface ProcessFilesResponse {
     status: 'processing' | 'completed' | 'failed';
     content?: LearningContent;
     error?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     subject_name?: string;
     chapter_name?: string;
     concept_name?: string;
@@ -273,7 +273,7 @@ export interface LLMModel {
     context_length: number;
     supports_function_calling: boolean;
     max_tokens: number;
-    features: Record<string, any>;
+    features: Record<string, unknown>;
     provider_id: string;
     is_active: boolean;
 }

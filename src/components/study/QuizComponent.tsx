@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useSaveLearningActivity, useStudent } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +31,8 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
   disabled = false,
   onQuizComplete
 }) => {
+  const saveActivity = useSaveLearningActivity();
+  const { data: currentStudent } = useStudent();
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -137,6 +140,10 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
           timeSpent,
           difficulty
         });
+
+        // NOTE: Persistence is handled by the parent component via onQuizComplete
+        // (NewStudyInterface). Removing the internal save avoids duplicate
+        // POSTs and ensures a single canonical student_id is used.
       }
     }
   };

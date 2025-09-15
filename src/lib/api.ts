@@ -99,6 +99,14 @@ class ApiClient {
         });
     }
 
+    // PATCH request
+    async patch<T>(endpoint: string, data?: any): Promise<T> {
+        return this.request<T>(endpoint, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
     // DELETE request
     async delete<T>(endpoint: string): Promise<T> {
         return this.request<T>(endpoint, { method: 'DELETE' });
@@ -183,25 +191,7 @@ export const API_ENDPOINTS = {
         availableAll: '/api/v1/providers/models/available',
     },
 
-    // Analytics (with path param for student_identifier, but for current user can use without or resolve)
-    analytics: {
-        dashboard: (studentId?: string, days?: number) => 
-            studentId ? `/api/v1/analytics/${studentId}/dashboard${days ? `?days=${days}` : ''}` : '/api/v1/analytics/dashboard',
-        subjects: (studentId?: string, days?: number) => 
-            studentId ? `/api/v1/analytics/${studentId}/subjects${days ? `?days=${days}` : ''}` : '/api/v1/analytics/subjects',
-        progress: (studentId?: string, subjectId?: number) => {
-            const base = studentId ? `/api/v1/analytics/${studentId}/progress` : '/api/v1/analytics/progress';
-            return subjectId ? `${base}?subject_id=${subjectId}` : base;
-        },
-        achievements: (studentId?: string) => 
-            studentId ? `/api/v1/analytics/${studentId}/achievements` : '/api/v1/analytics/achievements',
-        weeklyTrends: (studentId?: string, weeks?: number) => 
-            studentId ? `/api/v1/analytics/${studentId}/weekly-trends${weeks ? `?weeks=${weeks}` : ''}` : '/api/v1/analytics/weekly-trends',
-        weaknesses: (studentId?: string) => 
-            studentId ? `/api/v1/analytics/${studentId}/weaknesses` : '/api/v1/analytics/weaknesses',
-        studyPatterns: (studentId?: string, days?: number) => 
-            studentId ? `/api/v1/analytics/${studentId}/study-patterns${days ? `?days=${days}` : ''}` : '/api/v1/analytics/study-patterns',
-    },
+    // analytics removed
 
     // Model preferences (not implemented in backend, stubs - consider removing calls if causing 404)
     modelPreferences: {

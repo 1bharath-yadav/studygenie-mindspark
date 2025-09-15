@@ -1,15 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import { useCurrentUser, useAuth as useAuthActions } from '@/hooks/useApi';
-import type { User, AuthCredentials, SignUpData } from '@/types/api';
+import type { User, AuthCredentials, SignUpData, AuthTokens } from '@/types/api';
 
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
     isAuthenticated: boolean;
-    login: (credentials?: AuthCredentials) => Promise<any> | void;
+    login: (credentials?: AuthCredentials) => Promise<AuthTokens | void> | void;
     logout: () => Promise<void>;
-    signup: (data: SignUpData) => Promise<any>;
+    signup: (data: SignUpData) => Promise<AuthTokens | void>;
     token: string | null;
 }
 
@@ -31,14 +31,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [token, setToken] = useState<string | null>(
         localStorage.getItem('authToken')
     );
-    const [initialTokenCheck, setInitialTokenCheck] = useState(false);
+    // If we already have a token in localStorage, enable the initial check immediately
+    const [initialTokenCheck, setInitialTokenCheck] = useState<boolean>(
+        !!localStorage.getItem('authToken')
+    );
 
     const { data: user, isLoading, error, refetch } = useCurrentUser({ 
         enabled: initialTokenCheck 
     });
     const authActions = useAuthActions();
 
-    const isAuthenticated = !!user && !!token && !error;
+    // Consider loading state as well: only authenticated when user is present, token exists and we're not loading or errored
+    const isAuthenticated = !!user && !!token && !isLoading && !error;
 
     // Debug authentication state
     useEffect(() => {
@@ -76,12 +80,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             // Force refetch user data after token is set
             setTimeout(() => {
                 console.log('Refetching user data after token setup...');
-                refetch();
+                try {
+                    // refetch may be undefined depending on hook implementation; guard it
+                    if (typeof refetch === 'function') refetch();
+                } catch (err) {
+                    console.warn('Refetch failed after URL token set', err);
+                }
             }, 100);
         }
 
-        setInitialTokenCheck(true);
-    }, []);
+        // Ensure the initial token check flag is true so the user query (which uses `enabled`) can run
+        if (!initialTokenCheck) setInitialTokenCheck(true);
+    // deps: run once on mount; refetch and initialTokenCheck are stable enough but include refetch to satisfy hooks
+    }, [refetch, initialTokenCheck]);
 
     useEffect(() => {
         if (token) {
@@ -93,7 +104,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Clear token if user fetch failed with auth error
         if (error && token && initialTokenCheck) {
             console.log('User fetch failed, clearing token...');
-            if (error.message?.includes('401') || error.message?.includes('403')) {
+            const msg = typeof error === 'string' ? error : error?.message ?? '';
+            if (msg.includes('401') || msg.includes('403')) {
                 setToken(null);
                 apiClient.clearToken();
                 localStorage.removeItem('authToken');
@@ -105,13 +117,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const login = async (credentials?: AuthCredentials) => {
         if (credentials) {
             try {
-                const response = await authActions.login(credentials);
-                if (response && response.access_token) {
-                    setToken(response.access_token);
-                    localStorage.setItem('authToken', response.access_token);
-                    apiClient.setToken(response.access_token);
+                const response = (await authActions.login(credentials)) as AuthTokens | void;
+                if (response && typeof response === 'object' && 'access_token' in response) {
+                    const tokens = response as AuthTokens;
+                    setToken(tokens.access_token as string);
+                    localStorage.setItem('authToken', tokens.access_token as string);
+                    apiClient.setToken(tokens.access_token as string);
                     // Refetch user data
-                    await refetch();
+                    if (typeof refetch === 'function') await refetch();
                     return response;
                 }
             } catch (error) {
@@ -121,7 +134,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } else {
             // Redirect-based login for OAuth
             console.log('Redirecting to login...');
-            authActions.login();
+            // Some authActions.login implementations return a redirect URL or perform a redirect.
+            // Call it but guard in case it's not a function.
+            try {
+                if (typeof authActions.login === 'function') authActions.login();
+            } catch (err) {
+                console.warn('Redirect login failed', err);
+            }
         }
     };
 
@@ -144,13 +163,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Signup function
     const signup = async (data: SignUpData) => {
         try {
-            const response = await authActions.signup(data);
-            if (response && response.access_token) {
-                setToken(response.access_token);
-                localStorage.setItem('authToken', response.access_token);
-                apiClient.setToken(response.access_token);
+            const response = (await authActions.signup(data)) as AuthTokens | void;
+            if (response && typeof response === 'object' && 'access_token' in response) {
+                const tokens = response as AuthTokens;
+                setToken(tokens.access_token as string);
+                localStorage.setItem('authToken', tokens.access_token as string);
+                apiClient.setToken(tokens.access_token as string);
                 // Refetch user data
-                await refetch();
+                if (typeof refetch === 'function') await refetch();
                 return response;
             }
             return response;

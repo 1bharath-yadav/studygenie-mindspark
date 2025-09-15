@@ -7,9 +7,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";
-import Dashboard from "./pages/Dashboard";
-import Recommendations from "./pages/Recommendations";
-import Analytics from "./pages/Analytics";
+// Dashboard page removed
+// Recommendations page removed
 import Sessions from "./pages/Sessions";
 import NotFound from "./pages/NotFound";
 
@@ -38,9 +37,8 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/recommendations" element={<Recommendations />} />
-              <Route path="/analytics" element={<Analytics />} />
+              {/* Dashboard route removed */}
+              {/* Recommendations route removed */}
               <Route path="/sessions" element={<Sessions />} />
               <Route path="/settings" element={<Settings />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

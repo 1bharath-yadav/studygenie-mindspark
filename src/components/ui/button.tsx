@@ -20,7 +20,11 @@ const buttonVariants = cva(
           "bg-accent text-accent-foreground hover:bg-accent/90",
         success:
           "bg-success text-success-foreground hover:bg-success/90",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+  // Avoid a solid white/bright hover for floating controls (hamburger, +, chat bubble).
+  // Use transparent hover so the icon/button doesn't flash white on mouseover.
+  // Add a neon-blue "sprinkles" active state (thin ring + soft blue glow) when the user presses the button.
+  // Uses Tailwind arbitrary values for subtle glow and ring color.
+  ghost: "hover:bg-transparent hover:text-accent-foreground active:ring-2 active:ring-[#00e5ff]/40 active:bg-[#00e5ff]/06 active:shadow-[0_0_12px_rgba(0,229,255,0.12)] sprinkles-active",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

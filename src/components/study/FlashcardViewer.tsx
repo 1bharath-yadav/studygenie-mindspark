@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSaveLearningActivity, useStudent } from '@/hooks/useApi';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,8 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
   disabled = false,
   onSessionComplete
 }) => {
+  const saveActivity = useSaveLearningActivity();
+  const { data: currentStudent } = useStudent();
   // Debug incoming props
   console.log('FlashcardViewer mounted. incoming flashcards prop:', flashcardsData);
   const [currentCard, setCurrentCard] = useState(0);
@@ -150,6 +153,12 @@ export const FlashcardViewer: React.FC<FlashcardViewerProps> = ({
         timeSpent,
         difficulty
       });
+
+      // NOTE: Do not persist here. The parent component (NewStudyInterface)
+      // receives the onSessionComplete callback and is responsible for
+      // persisting learning activity. Persisting here and in the parent
+      // caused duplicate POSTs (one with possibly non-canonical id). See
+      // frontend/src/components/NewStudyInterface.tsx for the centralized save.
     }
 
     handleNext();

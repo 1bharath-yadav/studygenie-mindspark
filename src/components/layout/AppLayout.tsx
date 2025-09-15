@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -15,7 +15,8 @@ import {
     TrendingUp,
     Settings,
     User,
-    LogOut
+    LogOut,
+    Plus
 } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -35,14 +36,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     const location = useLocation();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const { data: currentUser } = useCurrentUser();
+    const [profileOpen, setProfileOpen] = useState(false);
+    const profileRef = useRef<HTMLDivElement | null>(null);
+    const openTimerRef = React.useRef<number | null>(null);
 
     const menuItems = [
         { id: 'home', label: 'Study Interface', icon: Home, path: '/' },
-        { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
-        { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, path: '/recommendations' },
-        { id: 'analytics', label: 'Analytics', icon: TrendingUp, path: '/analytics' },
-        { id: 'learning-history', label: 'Learning History', icon: BookOpen, path: '/sessions' },
-        { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' }
+        { id: 'learning-history', label: 'Learning History', icon: BookOpen, path: '/sessions' }
     ];
 
     const handleNavigation = (path: string) => {
@@ -56,95 +56,161 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         setIsMenuOpen(false);
     };
 
+    const createNewSession = () => {
+        try {
+            const prev = sessionStorage.getItem('studygenie_session_id');
+            // remove persisted chat messages and study materials for the current session
+            if (prev) {
+                try { localStorage.removeItem(`studygenie_chat_messages_${prev}`); } catch (e) {}
+                try { localStorage.removeItem(`studygenie_study_materials_${prev}`); } catch (e) {}
+            }
+            // notify any components to clear their in-memory state (prompt box, uploaded files, home content)
+            try { window.dispatchEvent(new CustomEvent('studygenie:clear-session')); } catch (e) {}
+            // also clear session-level storage keys
+            try {
+                sessionStorage.removeItem('studygenie_session_id');
+                sessionStorage.removeItem('studygenie_learning_content');
+                sessionStorage.removeItem('studygenie_session_history');
+            } catch (e) {}
+            // navigate home so the UI resets, then dispatch open-assistant after a short delay
+            navigate('/');
+            setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('studygenie:open-assistant')); } catch (e) {}
+            }, 120);
+            setIsMenuOpen(false);
+        } catch (e) {
+            console.warn('Failed to create new session', e);
+        }
+    };
+
+    // Auto-open the left menu when the pointer moves to the far left edge (small debounce)
+    React.useEffect(() => {
+        const EDGE_THRESHOLD = 8; // px from left edge
+        const OPEN_DELAY = 150; // ms user must hover at edge
+
+        const onPointerMove = (e: PointerEvent) => {
+            try {
+                const x = e.clientX;
+                if (x <= EDGE_THRESHOLD && !isMenuOpen) {
+                    if (openTimerRef.current == null) {
+                        openTimerRef.current = window.setTimeout(() => {
+                            setIsMenuOpen(true);
+                            openTimerRef.current = null;
+                        }, OPEN_DELAY) as unknown as number;
+                    }
+                } else {
+                    // moved away from edge: cancel pending open
+                    if (openTimerRef.current != null) {
+                        window.clearTimeout(openTimerRef.current);
+                        openTimerRef.current = null;
+                    }
+                }
+            } catch (err) {
+                // swallow
+            }
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            if (openTimerRef.current != null) {
+                window.clearTimeout(openTimerRef.current);
+                openTimerRef.current = null;
+            }
+        };
+    }, [isMenuOpen]);
+
+    useEffect(() => {
+        const onPointerDown = (e: PointerEvent) => {
+            if (!profileOpen) return;
+            if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+                setProfileOpen(false);
+            }
+        };
+        document.addEventListener('pointerdown', onPointerDown);
+        return () => document.removeEventListener('pointerdown', onPointerDown);
+    }, [profileOpen]);
+
     return (
         <div className="min-h-screen bg-background">
-            {/* Header with Navigation */}
-            <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-                <div className="w-full px-4 lg:px-6 py-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                            {/* Hamburger Menu */}
-                            <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-                                <SheetTrigger asChild>
-                                    <Button variant="ghost" size="sm">
-                                        <Menu className="h-5 w-5" />
-                                    </Button>
-                                </SheetTrigger>
-                                <SheetContent side="left" className="w-80">
-                                    <SheetHeader>
-                                        <SheetTitle className="text-left">StudyGenie</SheetTitle>
-                                    </SheetHeader>
-                                    <div className="py-4">
-                                        <nav className="space-y-2">
-                                            {menuItems.map((item) => (
-                                                <Button
-                                                    key={item.id}
-                                                    variant={location.pathname === item.path ? "default" : "ghost"}
-                                                    className="w-full justify-start"
-                                                    onClick={() => handleNavigation(item.path)}
-                                                >
-                                                    <item.icon className="h-4 w-4 mr-2" />
-                                                    {item.label}
-                                                </Button>
-                                            ))}
-                                        </nav>
+            {/* Floating menu trigger (replaces top navigation) */}
+            <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+                <SheetTrigger asChild>
+                    <Button variant="ghost" size="sm" className="fixed left-4 top-4 z-50">
+                        <Menu className="h-5 w-5" />
+                    </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-60 flex flex-col p-4">
+                    <SheetHeader>
+                        <SheetTitle className="text-left">Take more breathe</SheetTitle>
+                    </SheetHeader>
 
-                                        {/* User Section */}
-                                        {currentUser && (
-                                            <div className="mt-8 pt-4 border-t border-border">
-                                                <div className="flex items-center space-x-3 mb-4 px-2">
-                                                    <div className="p-2 bg-primary rounded-full">
-                                                        <User className="h-4 w-4 text-primary-foreground" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="font-medium text-sm truncate">{currentUser.name}</p>
-                                                        <p className="text-xs text-muted-foreground truncate">{currentUser.email}</p>
-                                                    </div>
-                                                </div>
-                                                <Button
-                                                    variant="ghost"
-                                                    className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                                                    onClick={handleLogout}
-                                                >
-                                                    <LogOut className="h-4 w-4 mr-2" />
-                                                    Logout
-                                                </Button>
-                                            </div>
-                                        )}
+                    <div className="py-4 flex-1 overflow-auto">
+                        {/* slightly reduced left padding so items sit closer to the edge */}
+                        <nav className="space-y-2 pl-0">
+                            {menuItems.map((item) => (
+                                <Button
+                                    key={item.id}
+                                    size="sm"
+                                    variant={location.pathname === item.path ? "default" : "ghost"}
+                                    className="w-full justify-start px-1"
+                                    onClick={() => handleNavigation(item.path)}
+                                >
+                                    <item.icon className="h-4 w-4 mr-1" />
+                                    {item.label}
+                                </Button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    {/* Profile button fixed at bottom inside the sheet; removes logout */}
+                    {currentUser && (
+                        <div className="mt-2 pt-4 border-t border-border">
+                            <div ref={profileRef} className="relative">
+                                <Button
+                                    variant="ghost"
+                                    className="w-full justify-start p-2"
+                                    onClick={() => setProfileOpen(v => !v)}
+                                >
+                                    <div className="flex items-center space-x-3 w-full px-2">
+                                        <div className="p-2 bg-primary rounded-full">
+                                            <User className="h-4 w-4 text-primary-foreground" />
+                                        </div>
+                                        <div className="flex-1 min-w-0 text-left">
+                                            <p className="font-medium text-sm truncate">{currentUser.name}</p>
+                                            <p className="text-xs text-muted-foreground truncate">{currentUser.email}</p>
+                                        </div>
                                     </div>
-                                </SheetContent>
-                            </Sheet>
+                                </Button>
 
-                            {/* Page Title */}
-                            {IconComponent && (
-                                <div className="p-2 bg-primary rounded-lg">
-                                    <IconComponent className="h-6 w-6 text-primary-foreground" />
-                                </div>
-                            )}
-                            <div>
-                                <h1 className="text-xl font-bold text-foreground">{title}</h1>
-                                {subtitle && (
-                                    <p className="text-sm text-muted-foreground">{subtitle}</p>
+                                {profileOpen && (
+                                    <div className="absolute left-0 bottom-full mb-2 w-56 bg-card border rounded shadow-lg p-2 z-50">
+                                        <hr className="my-2 border-border" />
+                                        <button className="w-full flex items-center gap-2 px-2 py-2 hover:bg-accent rounded" onClick={() => { navigate('/settings'); setIsMenuOpen(false); setProfileOpen(false); }}>
+                                            <Settings className="h-4 w-4" />
+                                            <span className="text-sm">Settings</span>
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </div>
+                    )}
+                </SheetContent>
+            </Sheet>
 
-                        {/* Right Side Actions */}
-                        <div className="flex items-center space-x-2">
-                            <StudyTimer />
-                            <ThemeToggle />
-                            {currentUser && (
-                                <Button variant="ghost" size="sm" onClick={() => navigate('/settings')}>
-                                    <Settings className="h-4 w-4" />
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </header>
+            {/* New session button (top-right) */}
+            {/* Theme toggle - keep always visible so users can switch modes quickly */}
+            <div className="fixed right-16 top-4 z-40">
+                <ThemeToggle />
+            </div>
 
-            {/* Main Content - Full Width */}
-            <main className="w-full">
+            {/* New session button (top-right) */}
+            <Button variant="ghost" size="sm" className="fixed right-4 top-4 z-40" onClick={createNewSession} aria-label="Create new session">
+                <Plus className="h-5 w-5" />
+            </Button>
+
+            {/* Main Content - Full Width; add top padding so fixed controls don't overlap content */}
+            <main className="w-full pt-6">
                 {children}
             </main>
         </div>

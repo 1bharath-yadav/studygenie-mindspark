@@ -265,4 +265,26 @@
   .glow-accent {
     box-shadow: var(--shadow-glow-accent);
   }
+
+  /* Sky-blue sprinkles used for floating control active state */
+  .sprinkles-active {
+    position: relative;
+  }
+  .sprinkles-active::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      0 -6px 10px -6px rgba(0,229,255,0.22),
+      6px -4px 6px -6px rgba(0,229,255,0.18),
+      -6px 2px 8px -6px rgba(0,229,255,0.12);
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+  .sprinkles-active:active::after,
+  .sprinkles-active.active::after {
+    opacity: 1;
+  }
 }

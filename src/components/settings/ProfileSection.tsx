@@ -22,7 +22,6 @@ const ProfileSection: React.FC = () => {
     grade_level: '',
     bio: '',
     preferred_topics: '', // comma-separated UI input
-    learning_style: 'mixed',
   });
 
   const { data: studentData } = useStudent();
@@ -41,16 +40,15 @@ const ProfileSection: React.FC = () => {
         : (src.learning_preferences && Array.isArray((src.learning_preferences as any).preferred_topics)
           ? (src.learning_preferences as any).preferred_topics.join(', ')
           : ''),
-      learning_style: (src.learning_preferences && (src.learning_preferences as any).learning_style) || 'mixed',
+      // learning_style removed from UI; keep other preferences
     });
   }, [currentUser, studentData]);
 
   const handleProfileUpdate = async () => {
     try {
-      // Build learning_preferences JSONB payload. We send an object with preferred_topics and learning_style.
+  // Build learning_preferences JSONB payload. We send an object with preferred_topics.
       const learningPreferences = {
         preferred_topics: profileForm.preferred_topics.split(',').map((s: string) => s.trim()).filter(Boolean),
-        learning_style: profileForm.learning_style,
       };
 
       const updateData = {
@@ -74,7 +72,7 @@ const ProfileSection: React.FC = () => {
             : (src.learning_preferences && Array.isArray((src.learning_preferences as any).preferred_topics)
               ? (src.learning_preferences as any).preferred_topics.join(', ')
               : prev.preferred_topics),
-          learning_style: (src.learning_preferences && (src.learning_preferences as any).learning_style) || prev.learning_style,
+          // learning_style intentionally omitted from UI/state
         }));
       }
       toast({ title: "Profile updated", description: "Changes saved successfully." });
@@ -127,15 +125,7 @@ const ProfileSection: React.FC = () => {
           <Input id="preferred_topics" value={profileForm.preferred_topics} onChange={e => setProfileForm(prev => ({ ...prev, preferred_topics: e.target.value }))} />
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="learning_style">Learning style</Label>
-          <select id="learning_style" value={profileForm.learning_style} onChange={e => setProfileForm(prev => ({ ...prev, learning_style: e.target.value }))} className="block w-full rounded-md border px-2 py-1">
-            <option value="visual">Visual</option>
-            <option value="auditory">Auditory</option>
-            <option value="kinesthetic">Kinesthetic</option>
-            <option value="mixed">Mixed</option>
-          </select>
-        </div>
+        {/* Learning style removed per request */}
         <div className="flex space-x-2">
           <Button onClick={handleProfileUpdate} disabled={updateProfileMutation.isPending}>
             {updateProfileMutation.isPending ? 'Updating...' : 'Update Profile'}

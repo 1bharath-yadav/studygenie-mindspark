@@ -8,8 +8,7 @@ import { QuizComponent } from '@/components/study/QuizComponent';
 import { MatchTheFollowing } from '@/components/study/MatchTheFollowing';
 import { FlashcardViewer } from '@/components/study/FlashcardViewer';
 import { IntegratedAIAssistant } from '@/components/IntegratedAIAssistant';
-import { FileUploadZone } from '@/components/upload/FileUploadZone';
-import { useApiKeys, useApiKeyStatus, useCurrentUser, useSaveLearningActivity } from '@/hooks/useApi';
+import { useApiKeys, useApiKeyStatus, useCurrentUser, useStudent, useSaveLearningActivity } from '@/hooks/useApi';
 import { useToast } from '@/hooks/use-toast';
 import {
     BookOpen,
@@ -24,6 +23,7 @@ import {
     MessageCircle,
     X as XIcon,
 } from 'lucide-react';
+// AnalyticsPanel moved to the dedicated Analytics page to avoid showing analytics on the study interface
 
 interface NewStudyInterfaceProps {
     isAuthenticated?: boolean;
@@ -42,6 +42,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     const [learningContent, setLearningContent] = useState<any>(null);
     const [sessionHistory, setSessionHistory] = useState<any[]>([]);
     const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>([]);
+    const [sessionId, setSessionId] = useState<string | null>(() => sessionStorage.getItem('studygenie_session_id'));
 
     // Session storage key for persistence
     const LEARNING_CONTENT_KEY = 'studygenie_learning_content';
@@ -110,6 +111,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
 
     // Get real data from APIs
     const { data: currentUser } = useCurrentUser();
+    const { data: currentStudent } = useStudent();
     const { data: apiKeys } = useApiKeys();
     // pass empty provider to avoid TypeScript missing-argument error; the hook will be a no-op
     const { data: apiKeyStatus } = useApiKeyStatus('');
@@ -122,8 +124,9 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     const hasActiveApiKey = (apiKeyStatus && (apiKeyStatus as any).hasActiveApiKey) ||
         (apiKeys && apiKeys.length > 0 && apiKeys.some((key: any) => key.is_active));
 
-    // Get student ID for analytics (use email as student ID since username doesn't exist)
-    const studentId = currentUser?.email || 'demo-student';
+    // Use canonical student_id from the server. Do NOT fall back to email/local values.
+    // If student_id is missing, we won't attempt to save learning activity to avoid 403/duplicate calls.
+    const studentId = currentStudent?.student_id ?? undefined;
 
     const toggleContentType = (typeId: string) => {
         setSelectedContentTypes(prev =>
@@ -165,6 +168,19 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                 estimated_study_time: content?.estimated_study_time || content?.metadata?.estimated_study_time
             }
         };
+
+        // Attach session id if present in the LLM response so we can restore chat sessions
+        const extractedSessionId = content?.session_id || content?.metadata?.session_id || content?.sessionId || null;
+        if (extractedSessionId) {
+            // persist session id to sessionStorage and include on saved content
+            try {
+                sessionStorage.setItem('studygenie_session_id', extractedSessionId);
+                setSessionId(extractedSessionId);
+            } catch (e) {
+                console.warn('Failed to persist session id', e);
+            }
+            (actualContent as any).session_id = extractedSessionId;
+        }
 
         console.log('🎯 Final actualContent with metadata:', actualContent);
         console.log('🎯 Metadata values:', {
@@ -259,6 +275,22 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
             console.error('Error auto-selecting content types:', e);
         }
 
+        // Determine whether the LLM produced useful learning content. If not, do not
+        // overwrite the current `learningContent` shown on the main page.
+        const hasUsefulContent = !!(
+            (actualContent?.flashcards && actualContent.flashcards.length > 0) ||
+            (actualContent?.quiz && actualContent.quiz.length > 0) ||
+            actualContent?.summary ||
+            actualContent?.match_the_following ||
+            (actualContent?.learning_objectives && actualContent.learning_objectives.length > 0)
+        );
+
+        if (!hasUsefulContent) {
+            // Don't overwrite existing main content if the generated response isn't useful.
+            console.log('No useful learning content returned from LLM; ignoring update.');
+            return;
+        }
+
         // Persist to session history: if a session history exists, append; otherwise create new
         try {
             const sessionId = sessionStorage.getItem('studygenie_session_id');
@@ -280,23 +312,14 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         }
 
         setLearningContent(actualContent);
-        // Only auto-hide when the generated content actually contains useful learning output
-        const hasUsefulContent = !!(
-            (actualContent?.flashcards && actualContent.flashcards.length > 0) ||
-            (actualContent?.quiz && actualContent.quiz.length > 0) ||
-            actualContent?.summary ||
-            actualContent?.match_the_following ||
-            (actualContent?.learning_objectives && actualContent.learning_objectives.length > 0)
-        );
 
-        if (hasUsefulContent) {
-            // clear any existing timeout
-            if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
-            hideTimeoutRef.current = window.setTimeout(() => {
-                setAssistantOpen(false);
-                hideTimeoutRef.current = null;
-            }, 1500);
-        }
+        // Auto-hide the assistant when useful content is generated
+        // clear any existing timeout
+        if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
+        hideTimeoutRef.current = window.setTimeout(() => {
+            setAssistantOpen(false);
+            hideTimeoutRef.current = null;
+        }, 1500);
         console.log('🎯 State updated, new learningContent should be:', actualContent);
     };
 
@@ -313,16 +336,56 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     // Function to clear session storage and reset content
     const clearSession = () => {
         try {
+            const sid = sessionStorage.getItem('studygenie_session_id') || sessionId;
+
             sessionStorage.removeItem(LEARNING_CONTENT_KEY);
             sessionStorage.removeItem(SELECTED_CONTENT_TYPES_KEY);
             sessionStorage.removeItem('studygenie_session_id');
+            sessionStorage.removeItem('studygenie_session_history');
+
+            // remove per-session localStorage keys if present
+            if (sid) {
+                try { localStorage.removeItem(`studygenie_chat_messages_${sid}`); } catch (e) {}
+                try { localStorage.removeItem(`studygenie_study_materials_${sid}`); } catch (e) {}
+            }
+
             setLearningContent(null);
+            setSessionHistory([]);
             setSelectedContentTypes([]);
+            setSessionId(null);
             console.log('🗑️ Cleared session storage and reset content');
         } catch (error) {
             console.error('Error clearing session storage:', error);
         }
     };
+
+    // Listen for global clear-session events (dispatched by AppLayout when + is pressed)
+    useEffect(() => {
+        const handler = () => clearSession();
+        window.addEventListener('studygenie:clear-session', handler as EventListener);
+        return () => window.removeEventListener('studygenie:clear-session', handler as EventListener);
+    }, [sessionId]);
+
+    // Listen for explicit request to open the assistant (dispatched by AppLayout when + is pressed)
+    useEffect(() => {
+        const onOpenAssistant = () => {
+            // ensure any hide timeout is cleared and show the assistant UI
+            if (hideTimeoutRef.current) {
+                window.clearTimeout(hideTimeoutRef.current);
+                hideTimeoutRef.current = null;
+            }
+            setAssistantOpen(true);
+        };
+        window.addEventListener('studygenie:open-assistant', onOpenAssistant as EventListener);
+        return () => window.removeEventListener('studygenie:open-assistant', onOpenAssistant as EventListener);
+    }, []);
+
+    // Hide assistant immediately when a material-generation request is submitted
+    useEffect(() => {
+        const onHide = () => setAssistantOpen(false);
+        window.addEventListener('studygenie:hide-assistant', onHide as EventListener);
+        return () => window.removeEventListener('studygenie:hide-assistant', onHide as EventListener);
+    }, []);
 
     // Handle quiz completion and save progress
     const handleQuizComplete = (results: {
@@ -443,22 +506,6 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                                 <Badge variant="outline">
                                                     {learningContent.metadata?.subject_name || 'Study Material'}
                                                 </Badge>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={clearSession}
-                                                    className="text-xs"
-                                                >
-                                                    Clear Session
-                                                </Button>
-                                                <Button
-                                                    variant="default"
-                                                    size="sm"
-                                                    onClick={clearSession}
-                                                    className="text-xs ml-2"
-                                                >
-                                                    Learn New
-                                                </Button>
                                             </div>
                                         </div>
                                         {learningContent.metadata && (
@@ -492,6 +539,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                         </CardContent>
                                     </Card>
                                 )}
+                                {/* Analytics panel removed from study interface (moved to /analytics) */}
 
                                 {/* Learning Objectives */}
                                 {learningContent.learning_objectives && learningContent.learning_objectives.length > 0 && (
@@ -588,8 +636,15 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                                         <div className="flex items-center space-x-2">
                                                             <Button size="sm" variant="default" onClick={() => {
                                                                 // Load this item into main view
-                                                                setLearningContent(item);
-                                                                sessionStorage.setItem('studygenie_learning_content', JSON.stringify(item));
+                                                                    setLearningContent(item);
+                                                                    sessionStorage.setItem('studygenie_learning_content', JSON.stringify(item));
+                                                                    const sid = item.session_id || item.metadata?.session_id || null;
+                                                                    if (sid) {
+                                                                        try {
+                                                                            sessionStorage.setItem('studygenie_session_id', sid);
+                                                                            setSessionId(sid);
+                                                                        } catch (e) {}
+                                                                    }
                                                             }}>
                                                                 Load
                                                             </Button>
@@ -603,19 +658,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                             </div>
                         ) : (
                             <Card className="glass-effect border-border h-full flex items-center justify-center">
-                                <CardContent className="text-center">
-                                    <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                                    <h3 className="text-lg font-semibold mb-2">Ready to Learn?</h3>
-                                    <p className="text-muted-foreground mb-4">
-                                        Upload your study materials and ask for what you need:
-                                    </p>
-                                    <div className="space-y-2 text-sm text-muted-foreground">
-                                        <p>• "Create flashcards from this content"</p>
-                                        <p>• "Make a quiz about this topic"</p>
-                                        <p>• "Generate a summary"</p>
-                                        <p>• "Create match the following exercise"</p>
-                                    </div>
-                                </CardContent>
+                               
                             </Card>
                         )}
                     </div>
@@ -628,9 +671,10 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
           <IntegratedAIAssistant
               disabled={!hasActiveApiKey}
               onContentGenerated={handleContentGenerated}
-              studentId={studentId}
-              studentName={studentName}
-              gradeLevel={gradeLevel}
+                            studentId={studentId}
+                            studentName={studentName}
+                            gradeLevel={gradeLevel}
+                            sessionId={sessionId}
           />
         )}
 
