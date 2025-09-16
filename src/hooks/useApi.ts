@@ -438,8 +438,20 @@ export const useAuth = () => {
             // Fallback for email/password if implemented, else OAuth
             console.warn('Email/password login not supported; using OAuth');
         }
-    // Redirect to OAuth (use same-origin + exported endpoint)
-    const redirectUrl = `${location.origin}${API_ENDPOINTS.auth.login}`;
+    // Redirect to OAuth: prefer configured API base URL so in production
+    // the frontend redirects to the backend host (VITE_API_BASE_URL).
+    // Fallback to location.origin for development convenience.
+    const base = (typeof import.meta !== 'undefined' && (import.meta.env && import.meta.env.VITE_API_BASE_URL)) || location.origin;
+    // If API_BASE_URL is exported from the api client, prefer it (use try/catch to avoid runtime errors during tests)
+    let redirectBase = base;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const api = require('@/lib/api');
+        if (api && api.API_BASE_URL) redirectBase = api.API_BASE_URL;
+    } catch (e) {
+        // ignore - fallback already set
+    }
+    const redirectUrl = `${redirectBase}${API_ENDPOINTS.auth.login}`;
         window.location.href = redirectUrl;
         return Promise.resolve();
     };

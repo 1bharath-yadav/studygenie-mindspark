@@ -399,7 +399,16 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
         // If user requested structured outputs (flashcards/quiz/match) or uploaded files,
         // hide the compact assistant immediately — we're switching to a material-generation flow.
+        // emit processing start so global indicator can show
+        const emitProcessingStart = () => {
+            try { window.dispatchEvent(new CustomEvent('studygenie:processing-start')); } catch (e) {}
+        };
+        const emitProcessingEnd = () => {
+            try { window.dispatchEvent(new CustomEvent('studygenie:processing-end')); } catch (e) {}
+        };
+
         try {
+            emitProcessingStart();
             if ((selectedContentTypes && selectedContentTypes.length > 0) || uploadedFiles.length > 0) {
                 try { window.dispatchEvent(new CustomEvent('studygenie:hide-assistant')); } catch (e) {}
             }
@@ -481,7 +490,12 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     headers,
                 });
 
-                if (!resp.ok) throw new Error('Chat stream request failed');
+                if (!resp.ok) {
+                    let txt = '';
+                    try { txt = await resp.text(); } catch (e) {}
+                    console.error('chat-stream non-ok response', resp.status, txt);
+                    throw new Error('Chat stream request failed: ' + txt);
+                }
 
                 // Prepare chat state: add user's message and an empty assistant message ready to stream into
                 const userMsgId = Math.random().toString(36).slice(2, 9);
@@ -554,6 +568,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
                 // Clear streaming indicator
                 setIsStreaming(false);
+                emitProcessingEnd();
 
                 // Persist session id if backend created one
                 const returnedSessionId = finalOutput?.session_id || finalOutput?.sessionId || null;
@@ -567,17 +582,135 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 if (onContentGenerated) onContentGenerated(finalOutput || null);
                 result = { session_id: finalOutput?.session_id || null, llm_response: finalOutput || null };
             } else {
-                result = await processFilesMutation.mutateAsync({
-                    files: uploadedFiles.map(f => f.file),
-                    data: additionalData,
-                });
+                // If files or structured content selected, use streaming NDJSON endpoint so frontend can incrementally render
+                if ((selectedContentTypes && selectedContentTypes.length > 0) || uploadedFiles.length > 0) {
+                    setIsStreaming(true);
 
-                // If backend returned a session id in the non-streaming path, persist it
-                const returnedSid = result?.session_id || result?.sessionId || result?.llm_response?.session_id || null;
-                if (returnedSid) {
-                    try { sessionStorage.setItem('studygenie_session_id', returnedSid); } catch (e) {}
+                    // Prepare formdata including files
+                    const form = new FormData();
+                    form.append('user_query', userQuery);
+                    const sessionIdToSend = sessionId ?? sessionStorage.getItem('studygenie_session_id');
+                    if (sessionIdToSend) form.append('session_id', sessionIdToSend);
+                    // session_name is optional and not provided from this component
+                    if (selectedContentTypes && selectedContentTypes.length > 0) form.append('selected_content_types', JSON.stringify(selectedContentTypes));
+                    // append files (include filename) and log details to help debug server I/O issues
+                    try {
+                        console.debug('Uploading files:', uploadedFiles.map(f => ({ name: f.name, size: f.file.size, type: f.type })));
+                    } catch (e) {}
+                    for (const f of uploadedFiles) form.append('files', f.file, f.name);
+
+                    const authToken = localStorage.getItem('authToken');
+                    const headers: Record<string,string> = {};
+                    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+                    const resp = await fetch('/api/v1/llm/process-files-stream', {
+                        method: 'POST',
+                        body: form,
+                        headers,
+                    });
+
+                    if (!resp.ok) {
+                        let txt = '';
+                        try { txt = await resp.text(); } catch (e) {}
+                        console.error('process-files-stream non-ok response', resp.status, txt);
+                        throw new Error('Stream request failed: ' + txt);
+                    }
+
+                    // Add user message and create an empty assistant message that we'll stream into
+                    const userMsgId = Math.random().toString(36).slice(2, 9);
+                    const assistantMsgId = Math.random().toString(36).slice(2, 9);
+                    setChatMessages(prev => [...prev, { id: userMsgId, role: 'user', text: userQuery }, { id: assistantMsgId, role: 'assistant', text: '', streaming: true }]);
+
+                    const reader = resp.body?.getReader();
+                    if (!reader) throw new Error('Streaming not supported');
+
+                    const decoder = new TextDecoder();
+                    let buf = '';
+                    let finalOutput: any = null;
+
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            buf += decoder.decode(value, { stream: true });
+                            // NDJSON: split by newline and handle each JSON object
+                            const lines = buf.split('\n');
+                            buf = lines.pop() || '';
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    const obj = JSON.parse(line);
+                                    // Handle known statuses
+                                    if (obj.status === 'streaming' && (obj.data || obj.text)) {
+                                        // Prefer short textual delta when provided by the server to avoid
+                                        // appending large JSON dumps to the streaming UI.
+                                        const deltaText = (typeof obj.text === 'string' && obj.text) ? obj.text : (typeof obj.data === 'string' ? obj.data : JSON.stringify(obj.data));
+                                        // Append intelligently to avoid duplication
+                                        setChatMessages(prev => prev.map(m => {
+                                            if (m.id !== assistantMsgId) return m;
+                                            const existing = m.text || '';
+                                            // simple overlap protection
+                                            if (existing.endsWith(deltaText)) return m;
+                                            return { ...m, text: existing + deltaText };
+                                        }));
+                                    } else if (obj.status === 'complete' && obj.data) {
+                                        finalOutput = obj.data;
+                                        const finalText = typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput, null, 2);
+                                        setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: finalText, streaming: false } : m));
+                                    } else if (obj.status === 'persisted') {
+                                        // Backend persisted session info
+                                        const sid = obj.session_id || null;
+                                        if (sid) {
+                                            try { sessionStorage.setItem('studygenie_session_id', sid); } catch (e) {}
+                                        }
+                                    } else if (obj.status === 'error') {
+                                        // Backend reported a processing error for this session
+                                        console.error('Stream reported error:', obj.error, obj);
+                                        try {
+                                            toast({ title: 'Processing error', description: String(obj.error || 'Unknown error'), variant: 'destructive' });
+                                        } catch (e) {}
+                                        // set finalOutput to null and exit the streaming loop gracefully
+                                        finalOutput = null;
+                                        // break outer while loop by setting buf to '' and clearing lines
+                                        buf = '';
+                                        lines.length = 0;
+                                        // force exit
+                                        throw new Error(String(obj.error || 'Unknown error from stream'));
+                                    } else if (obj.status === 'files_saved' || obj.status === 'processing_started' || obj.status === 'cleanup_complete') {
+                                        // ignore small lifecycle notifications or optionally show a toast
+                                    } else {
+                                        // unknown object - append as debug text
+                                        const asText = JSON.stringify(obj);
+                                        setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: (m.text || '') + '\n' + asText } : m));
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to parse NDJSON line', e, line);
+                                }
+                            }
+                        }
+                    } finally {
+                        setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
+                        setIsStreaming(false);
+                        emitProcessingEnd();
+                    }
+
+                    if (finalOutput && onContentGenerated) onContentGenerated(finalOutput);
+                    result = { session_id: finalOutput?.session_id || null, llm_response: finalOutput || null };
+                } else {
+                    // fallback to existing non-streaming mutation for small flows
+                    try {
+                        console.debug('Uploading files (non-stream):', uploadedFiles.map(f => ({ name: f.name, size: f.file.size, type: f.type })));
+                    } catch (e) {}
+                    result = await processFilesMutation.mutateAsync({
+                        files: uploadedFiles.map(f => f.file),
+                        data: additionalData,
+                    });
+                    const returnedSid = result?.session_id || result?.sessionId || result?.llm_response?.session_id || null;
+                    if (returnedSid) {
+                        try { sessionStorage.setItem('studygenie_session_id', returnedSid); } catch (e) {}
+                    }
+                    if (onContentGenerated) onContentGenerated(result?.llm_response || result || null);
                 }
-                if (onContentGenerated) onContentGenerated(result?.llm_response || result || null);
             }
 
             console.log('📤 Received result from API:', result);
@@ -595,6 +728,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             });
         } finally {
             // ensure mutation state is reset (react-query handles isLoading)
+            // make sure we always emit processing-end if an error occurred before earlier end
+            try { window.dispatchEvent(new CustomEvent('studygenie:processing-end')); } catch (e) {}
         }
     };
 

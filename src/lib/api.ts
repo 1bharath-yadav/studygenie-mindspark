@@ -1,7 +1,7 @@
 // frontend/src/lib/api.ts
 // API configuration and base URL
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // API client class for making requests to the backend
 class ApiClient {
