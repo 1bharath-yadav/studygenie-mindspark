@@ -36,13 +36,16 @@ class ApiClient {
         // so the browser can set the correct multipart/form-data boundary.
         const isFormDataBody = options.body instanceof FormData;
 
+        // Read token fresh from localStorage in case it was changed after ApiClient instantiation
+        const token = this.token ?? localStorage.getItem('authToken');
+
         const config: RequestInit = {
             // Spread other options first so callers can override method/body/etc.
             ...options,
             headers: {
                 // Only set JSON content type for non-FormData bodies
                 ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-                ...(this.token && { Authorization: `Bearer ${this.token}` }),
+                ...(token && { Authorization: `Bearer ${token}` }),
                 // Merge any caller-provided headers (these can override defaults)
                 ...options.headers,
             },
@@ -168,7 +171,9 @@ export const API_ENDPOINTS = {
         userProviders: '/api/v1/llm/providers',
         userModels: '/api/v1/llm/models',
         systemProviders: '/api/v1/llm/system/providers',
-        processFiles: '/api/v1/llm/process-files', // Assuming exists
+    // For structured streaming generation (expects selected content types)
+    // Use `/chat-stream` for conversation/chat-only flows.
+    processFiles: '/api/v1/llm/stream-structured-content',
     },
 
     // API Keys

@@ -25,8 +25,8 @@ const SettingsPage: React.FC = () => {
           </div>
           <Button variant="outline" onClick={logout}>Sign Out</Button>
         </div>
-        <ProfileSection />
-        <ApiManagementSection />
+  <ProfileSection />
+  <ApiManagementSection />
       </div>
     </AppLayout>
   );

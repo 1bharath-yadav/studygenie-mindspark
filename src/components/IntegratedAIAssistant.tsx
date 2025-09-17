@@ -8,38 +8,21 @@ import {
     Upload,
     File,
     X,
-    Send,
     Loader2,
     FileText,
     Image as ImageIcon,
     FileImage,
     BookOpen,
     Layers,
-    Shuffle
+    Shuffle,
+    Copy,
+    Edit2,
+    RefreshCw
 } from 'lucide-react';
+import { TbArrowUp } from 'react-icons/tb';
+import { VscSettings } from 'react-icons/vsc';
 
-// runtime-safe icon loader: try to load react-icons/gi at runtime, fall back to an inline SVG
-const SettingsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
-    // Try to require the package at runtime (works in CommonJS if present), otherwise render fallback
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const ri = require('react-icons/gi');
-        const Comp = ri?.GiSettingsKnobs;
-        if (Comp) return <Comp {...props} />;
-    } catch (e) {
-        // noop - fall through to fallback
-    }
 
-    // Simple fallback SVG (three knobs) with inheritable size/color
-    return (
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-            <rect x="3" y="3" width="2" height="12" rx="1" fill="currentColor" />
-            <rect x="10" y="1" width="2" height="16" rx="1" fill="currentColor" />
-            <rect x="17" y="6" width="2" height="11" rx="1" fill="currentColor" />
-            <circle cx="13" cy="7" r="1.2" fill="currentColor" />
-        </svg>
-    );
-};
 
 // Markdown rendering libs
 import ReactMarkdown from 'react-markdown';
@@ -83,10 +66,31 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: 'user' | 'assistant'; text: string; streaming?: boolean }>>([]);
     const [autoScroll, setAutoScroll] = useState(true);
     const [toolsOpen, setToolsOpen] = useState(false);
-    // Default to false so opening the assistant via the chat bubble does not
-    // show the centered fresh-session UI. Only explicit 'open-assistant' or
-    // 'clear-session' will set a true fresh-session state.
-    const [isFirstSession, setIsFirstSession] = useState(false);
+    // Compute initial 'first session' synchronously from localStorage so that when the
+    // component is mounted (e.g., reopened) it doesn't start centered and then flip
+    // to bottom after async restore completes. If there are persisted messages we
+    // default to non-first session so the prompt renders bottom-aligned immediately.
+    const computeInitialFirst = () => {
+        try {
+            const sid = sessionId ?? (typeof window !== 'undefined' ? sessionStorage.getItem('studygenie_session_id') : null);
+            const sessionKey = `studygenie_chat_messages_${sid || ''}`;
+            const studentKey = `studygenie_chat_messages_${studentId}`;
+            const rawSession = sid ? localStorage.getItem(sessionKey) : null;
+            if (rawSession) {
+                const parsed = JSON.parse(rawSession);
+                if (Array.isArray(parsed) && parsed.length > 0) return false; // has messages -> not first
+            }
+            const rawStudent = localStorage.getItem(studentKey);
+            if (rawStudent) {
+                const parsed = JSON.parse(rawStudent);
+                if (Array.isArray(parsed) && parsed.length > 0) return false; // has messages -> not first
+            }
+        } catch (e) {
+            // ignore - fall back to first session
+        }
+        return true;
+    };
+    const [isFirstSession, setIsFirstSession] = useState<boolean>(computeInitialFirst);
     const [isAnimating, setIsAnimating] = useState(false); // Track animation state
     
     // Persisted chat key is either session-specific (preferred) or falls back to student id
@@ -96,6 +100,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const toolsContainerRef = useRef<HTMLDivElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const userInteractedRef = useRef(false);
+    const forceCenterRef = useRef(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { toast } = useToast();
     const processFilesMutation = useProcessFiles();
@@ -146,23 +152,26 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 const sessionIdToUse = sessionId ?? sessionStorage.getItem('studygenie_session_id');
                 const sessionKey = `studygenie_chat_messages_${sessionIdToUse || ''}`;
                 const studentKey = `studygenie_chat_messages_${studentId}`;
-
                 let hasExistingMessages = false;
+                let restoredMessages: Array<any> | null = null;
+                let contentGenerated: any = null;
 
                 // First try to restore from localStorage session key (fast, offline)
                 const rawSession = sessionIdToUse ? localStorage.getItem(sessionKey) : null;
                 if (rawSession) {
-                    const parsed = JSON.parse(rawSession);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        setChatMessages(parsed);
-                        hasExistingMessages = true;
-                        setIsFirstSession(false);
-                        return;
+                    try {
+                        const parsed = JSON.parse(rawSession);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            restoredMessages = parsed;
+                            hasExistingMessages = true;
+                        }
+                    } catch (e) {
+                        // ignore malformed
                     }
                 }
 
-                // If we have a server session id, try fetching canonical session from backend
-                if (sessionIdToUse) {
+                // If we have a server session id and still no messages, try fetching canonical session from backend
+                if (!hasExistingMessages && sessionIdToUse) {
                     try {
                         // Use shared apiClient so Authorization header is included when available
                         const { apiClient } = await import('@/lib/api');
@@ -175,15 +184,13 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                                     role: (h.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
                                     text: String(h.content ?? h.text ?? (typeof h === 'string' ? h : JSON.stringify(h)))
                                 }));
-                                setChatMessages(msgs);
+                                restoredMessages = msgs;
                                 hasExistingMessages = true;
-                                setIsFirstSession(false);
                             }
                             // Deliver study materials to parent for rendering on home page
-                            if (data && data.study_materials && onContentGenerated) {
-                                onContentGenerated(data.study_materials);
+                            if (data && data.study_materials) {
+                                contentGenerated = data.study_materials;
                             }
-                            return;
                         }
                     } catch (e) {
                         // ignore and fall back to localStorage/student-key
@@ -192,22 +199,45 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 }
 
                 // Fallback: if only student-keyed messages exist in localStorage, migrate them to session key
-                const rawStudent = localStorage.getItem(studentKey);
-                if (rawStudent) {
-                    const parsed = JSON.parse(rawStudent);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        if (sessionIdToUse) {
-                            try { localStorage.setItem(sessionKey, rawStudent); } catch {}
+                if (!hasExistingMessages) {
+                    const rawStudent = localStorage.getItem(studentKey);
+                    if (rawStudent) {
+                        try {
+                            const parsed = JSON.parse(rawStudent);
+                            if (Array.isArray(parsed) && parsed.length > 0) {
+                                restoredMessages = parsed;
+                                hasExistingMessages = true;
+                                if (sessionIdToUse) {
+                                    try { localStorage.setItem(sessionKey, rawStudent); } catch {}
+                                }
+                            }
+                        } catch (e) {
+                            // ignore malformed
                         }
-                        setChatMessages(parsed);
-                        hasExistingMessages = true;
-                        setIsFirstSession(false);
                     }
                 }
 
-                // If no existing messages found, this is truly a fresh session
-                if (!hasExistingMessages) {
+                // Apply restored state once to avoid intermediate toggles that race with user interactions.
+                // If the user interacted (focused/clicked) while restore was running, avoid flipping the
+                // 'first session' layout state to prevent a visual jump.
+                if (restoredMessages) {
+                    setChatMessages(restoredMessages);
+                }
+                if (contentGenerated && onContentGenerated) {
+                    onContentGenerated(contentGenerated);
+                }
+                // If user explicitly forced center (via clear/open), preserve that state.
+                if (forceCenterRef.current) {
                     setIsFirstSession(true);
+                } else {
+                    const shouldSetFirst = !hasExistingMessages && !userInteractedRef.current;
+                    if (shouldSetFirst) {
+                        setIsFirstSession(true);
+                    } else {
+                        // Only explicitly clear first-session when we deterministically know there are messages
+                        // and the user hasn't already interacted. This prevents mid-click layout flips.
+                        setIsFirstSession(false);
+                    }
                 }
             } catch (e) {
                 console.warn('Failed to restore chat messages from storage or server', e);
@@ -224,6 +254,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             setUploadedFiles([]);
             setSelectedContentTypes([]);
             setChatMessages([]);
+            // Force centered fresh-session UI until the user interacts
+            forceCenterRef.current = true;
             setIsFirstSession(true);
             setIsAnimating(false);
             if (onContentGenerated) onContentGenerated(null);
@@ -253,6 +285,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         };
     }, [sessionId, onContentGenerated, studentId]);
 
+    // No early listener — onClear effect above handles open/clear behavior.
+
     // Auto-scroll the chat messages container when new messages arrive
     useEffect(() => {
         if (!autoScroll) return;
@@ -265,6 +299,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             el.scrollTop = el.scrollHeight;
         }
     }, [chatMessages, autoScroll]);
+
 
     // Persist chat messages to localStorage whenever they change.
     useEffect(() => {
@@ -377,14 +412,20 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         return () => window.removeEventListener('studygenie:edit-code', onEdit as EventListener);
     }, []);
 
-    // popup position state
-    const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null);
+    // mark that the user interacted so restore logic won't flip layout mid-interaction
     useEffect(() => {
-        if (!containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        // position popup slightly above and to the left of the assistant container
-        setPopupPos({ left: Math.max(8, rect.left - 8), top: Math.max(8, rect.top - 48) });
-    }, [uploadedFiles.length, isFirstSession, isAnimating]);
+        const t = textareaRef.current;
+        if (!t) return;
+    const onPointerDown = () => { userInteractedRef.current = true; forceCenterRef.current = false; };
+    const onFocus = () => { userInteractedRef.current = true; forceCenterRef.current = false; };
+        t.addEventListener('pointerdown', onPointerDown);
+        t.addEventListener('focus', onFocus);
+        return () => {
+            t.removeEventListener('pointerdown', onPointerDown);
+            t.removeEventListener('focus', onFocus);
+        };
+    }, []);
+
 
     const handleSubmit = async (overridePrompt?: string) => {
         const usedPrompt = (overridePrompt ?? prompt).trim();
@@ -397,9 +438,9 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             return;
         }
 
-        // If user requested structured outputs (flashcards/quiz/match) or uploaded files,
-        // hide the compact assistant immediately — we're switching to a material-generation flow.
-        // emit processing start so global indicator can show
+        // If user requested structured outputs (flashcards/quiz/match), start the
+        // global processing indicator and hide the compact assistant. For file-only
+        // chat flows we keep the assistant open and use local streaming indicators.
         const emitProcessingStart = () => {
             try { window.dispatchEvent(new CustomEvent('studygenie:processing-start')); } catch (e) {}
         };
@@ -407,9 +448,13 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             try { window.dispatchEvent(new CustomEvent('studygenie:processing-end')); } catch (e) {}
         };
 
+        // Track whether we started the global processing indicator so we only
+        // emit the matching 'end' event when appropriate.
+        let globalProcessingStarted = false;
         try {
-            emitProcessingStart();
-            if ((selectedContentTypes && selectedContentTypes.length > 0) || uploadedFiles.length > 0) {
+            if (selectedContentTypes && selectedContentTypes.length > 0) {
+                emitProcessingStart();
+                globalProcessingStarted = true;
                 try { window.dispatchEvent(new CustomEvent('studygenie:hide-assistant')); } catch (e) {}
             }
         } catch (e) {}
@@ -419,14 +464,11 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             // the container from centered -> bottom (isFirstSession=false) so
             // the CSS transition runs. After the transition duration we clear
             // the animation flag.
+            // If this was marked as a first session, disable the 'first session' state
+            // and skip any animated transition. We want the prompt box to appear
+            // immediately in its bottom-aligned position on all devices.
             if (isFirstSession) {
-                setIsAnimating(true);
-                // give React a tick to apply isAnimating classes
-                await new Promise(resolve => setTimeout(resolve, 50));
                 setIsFirstSession(false);
-                // wait for the visual transition to finish (match duration in classes)
-                await new Promise(resolve => setTimeout(resolve, 700));
-                setIsAnimating(false);
             }
 
         try {
@@ -469,16 +511,19 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             if (storedSessionId) additionalData.session_id = storedSessionId;
             if (selectedContentTypes && selectedContentTypes.length > 0) additionalData.selected_content_types = selectedContentTypes;
 
-            // If user did not select any structured outputs and there are no files,
-            // use the streaming chat endpoint for a regular chat experience.
+            // If user did not select any structured outputs, use the streaming chat endpoint for a regular chat experience.
+            // This includes the case where files were uploaded but content types are OFF: those should go to chat-stream.
             let result: any = null;
-            if ((!selectedContentTypes || selectedContentTypes.length === 0) && uploadedFiles.length === 0) {
-                // Call streaming endpoint
+            if (!selectedContentTypes || selectedContentTypes.length === 0) {
+                // Call streaming chat endpoint. Include files in the form if present.
                 setIsStreaming(true);
                 const form = new FormData();
                 form.append('user_prompt', userQuery);
                 const sessionIdToSend = sessionId ?? sessionStorage.getItem('studygenie_session_id');
                 if (sessionIdToSend) form.append('session_id', sessionIdToSend);
+
+                // Append files if any
+                for (const f of uploadedFiles) form.append('files', f.file, f.name);
 
                 const authToken = localStorage.getItem('authToken');
                 const headers: Record<string,string> = {};
@@ -568,7 +613,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
                 // Clear streaming indicator
                 setIsStreaming(false);
-                emitProcessingEnd();
+                if (globalProcessingStarted) emitProcessingEnd();
 
                 // Persist session id if backend created one
                 const returnedSessionId = finalOutput?.session_id || finalOutput?.sessionId || null;
@@ -581,9 +626,10 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 // Notify parent with final output
                 if (onContentGenerated) onContentGenerated(finalOutput || null);
                 result = { session_id: finalOutput?.session_id || null, llm_response: finalOutput || null };
-            } else {
-                // If files or structured content selected, use streaming NDJSON endpoint so frontend can incrementally render
-                if ((selectedContentTypes && selectedContentTypes.length > 0) || uploadedFiles.length > 0) {
+                } else {
+                    // If structured content selected, use streaming NDJSON endpoint so frontend can incrementally render
+                    // Note: files alone (without selected content types) should NOT force structured streaming; they'll go to chat-stream instead.
+                    if (selectedContentTypes && selectedContentTypes.length > 0) {
                     setIsStreaming(true);
 
                     // Prepare formdata including files
@@ -603,7 +649,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     const headers: Record<string,string> = {};
                     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-                    const resp = await fetch('/api/v1/llm/process-files-stream', {
+                    const resp = await fetch('/api/v1/llm/stream-structured-content', {
                         method: 'POST',
                         body: form,
                         headers,
@@ -612,7 +658,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     if (!resp.ok) {
                         let txt = '';
                         try { txt = await resp.text(); } catch (e) {}
-                        console.error('process-files-stream non-ok response', resp.status, txt);
+                        console.error('stream-structured-content non-ok response', resp.status, txt);
                         throw new Error('Stream request failed: ' + txt);
                     }
 
@@ -691,7 +737,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     } finally {
                         setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
                         setIsStreaming(false);
-                        emitProcessingEnd();
+                        if (globalProcessingStarted) emitProcessingEnd();
                     }
 
                     if (finalOutput && onContentGenerated) onContentGenerated(finalOutput);
@@ -728,8 +774,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             });
         } finally {
             // ensure mutation state is reset (react-query handles isLoading)
-            // make sure we always emit processing-end if an error occurred before earlier end
-            try { window.dispatchEvent(new CustomEvent('studygenie:processing-end')); } catch (e) {}
+            // emit processing-end only if we previously started global processing
+            try { if (globalProcessingStarted) window.dispatchEvent(new CustomEvent('studygenie:processing-end')); } catch (e) {}
         }
     };
 
@@ -744,27 +790,58 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         setPrompt(e.target.value);
     }, []);
 
-    // Determine the container classes and styles based on session state
-    const getContainerClasses = () => {
-        if (isFirstSession) {
-            // show centered prompt without an animated transition
-            return "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] max-w-2xl bg-background border rounded-lg p-6 z-50 space-y-4";
-        } else if (isAnimating) {
-            // treat animating as the same visual state without CSS animation classes
-            return "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] max-w-2xl bg-background border rounded-lg p-6 z-50 space-y-4";
-        } else {
-            // center horizontally at the bottom and occupy ~60% of the viewport width
-            return "fixed bottom-4 left-1/2 -translate-x-1/2 w-[60vw] max-w-[80vw] bg-background border rounded-lg p-4 z-50 space-y-4";
+    // Action handlers: copy, edit (load into prompt), retry
+    const handleCopyText = async (text: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast({ title: 'Copied', description: 'Message copied to clipboard.' });
+        } catch (e) {
+            toast({ title: 'Copy failed', description: 'Unable to copy to clipboard.', variant: 'destructive' });
         }
     };
 
+    const handleEditText = (text: string) => {
+        setPrompt(text);
+        textareaRef.current?.focus();
+    };
+
+    const handleRetry = (promptText: string) => {
+        // populate prompt and submit
+        setPrompt(promptText || '');
+        setTimeout(() => void handleSubmit(promptText), 20);
+    };
+
+    // Use centered container for the very first session (fresh state). For all
+    // other cases render the assistant as a bottom-aligned prompt. No animations
+    // are used; the switch is immediate so focus and typing are reliable.
+    const getContainerClasses = () => {
+        if (isFirstSession) {
+            // centered view: add horizontal padding so content isn't flush to container edges
+            return "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] max-w-2xl bg-background rounded-lg px-4 py-2 z-50 space-y-0";
+        }
+        // bottom-aligned: remove container border and padding so prompt sits flush with container edge
+        return "fixed bottom-4 left-1/2 -translate-x-1/2 w-[60vw] max-w-2xl bg-background rounded-lg px-4 py-2 z-50 space-y-0";
+    };
+
     const getContainerStyle = () => {
-        if (isFirstSession || isAnimating) {
-            return {};
+        if (isFirstSession) {
+            return { backgroundColor: '#191A1A', border: '1px solid #3a3a3a' };
         } else {
-            return { maxHeight: 'calc(100vh - 48px)' };
+            return { maxHeight: 'calc(100vh - 48px)', backgroundColor: '#191A1A', border: '1px solid #3a3a3a' };
         }
     };
+
+    // If user toggles any structured content type, immediately hide the compact assistant
+    // so the app can show the full processing/structured UI. This must run immediately on user action.
+    useEffect(() => {
+        try {
+            if (selectedContentTypes && selectedContentTypes.length > 0) {
+                // Hide compact assistant UI immediately
+                try { window.dispatchEvent(new CustomEvent('studygenie:hide-assistant')); } catch (e) {}
+                setIsFirstSession(false);
+            }
+        } catch (e) {}
+    }, [selectedContentTypes]);
 
     return (
         <>
@@ -781,183 +858,172 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             {!isFirstSession && chatMessages.length > 0 && (
                 <div
                     ref={messagesRef}
-                    className="overflow-y-auto overflow-x-hidden border rounded p-3 bg-muted/5"
-                    style={{ maxHeight: 'calc(50vh)' }}
+                    className="overflow-y-auto overflow-x-hidden mb-3"
+                    style={{ maxHeight: 'calc(50vh)', padding: 0 }}
                 >
-                            {/** Render messages as user->assistant pairs when possible so we can attach actions per pair */}
-                            {(() => {
-                                const nodes: React.ReactNode[] = [];
-                                for (let i = 0; i < chatMessages.length; i++) {
-                                    const m = chatMessages[i];
-                                    if (m.role === 'user') {
-                                        const assistant = chatMessages[i + 1] && chatMessages[i + 1].role === 'assistant' ? chatMessages[i + 1] : null;
-                                        const key = m.id + (assistant ? '_' + assistant.id : '');
-                                        nodes.push(
-                                            <div key={key} className="mb-4">
-                                                <div className="text-right">
-                                                    <div className="inline-block p-3 rounded-lg bg-accent/90 text-accent-foreground max-w-[85%] ml-auto text-sm">
-                                                        <div className="whitespace-pre-wrap break-words">{m.text}</div>
-                                                    </div>
-                                                </div>
-
-                                                {assistant ? (
-                                                    <div className="mt-2 flex items-start gap-3">
-                                                        <div className="flex-1">
-                                                            <div className="inline-block p-3 rounded-lg bg-surface text-sm max-w-full break-words">
-                                                                <div className="max-w-full break-words overflow-hidden prose text-sm">
-                                                                    <LLMOutputRenderer text={assistant.text} isStreamFinished={!assistant.streaming} />
-                                                                </div>
-                                                                {assistant.streaming ? <div className="text-xs text-muted-foreground mt-1">• streaming</div> : null}
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col items-end gap-2">
-                                                            <button
-                                                                className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200"
-                                                                onClick={async () => {
-                                                                    try {
-                                                                        await navigator.clipboard.writeText(assistant.text || '');
-                                                                    } catch {}
-                                                                }}
-                                                            >
-                                                                Copy
-                                                            </button>
-                                                            <button
-                                                                className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200"
-                                                                onClick={() => void handleSubmit(m.text)}
-                                                            >
-                                                                Retry
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        );
-                                        if (assistant) i++; // skip next as we rendered it
-                                    } else if (m.role === 'assistant') {
-                                        // orphan assistant message (no preceding user) - render normally with actions
-                                        nodes.push(
-                                            <div key={m.id} className="mb-3 text-left">
-                                                <div className="inline-block p-3 rounded-lg bg-surface text-sm max-w-full break-words">
-                                                    <div className="max-w-full break-words overflow-hidden prose text-sm">
-                                                        <LLMOutputRenderer text={m.text} isStreamFinished={!m.streaming} />
-                                                    </div>
-                                                </div>
-                                                <div className="mt-1 flex gap-2">
-                                                    <button className="text-xs px-2 py-1 rounded bg-neutral-100" onClick={async () => { try { await navigator.clipboard.writeText(m.text || ''); } catch {} }}>Copy</button>
-                                                </div>
-                                            </div>
-                                        );
-                                    }
-                                }
-                                return nodes;
-                            })()}
+                    {chatMessages.map((m, i) => (
+                        <div key={m.id} className={`mb-3 group ${m.role === 'user' ? 'text-right' : 'text-left'}`}> 
+                            <div className="inline-block p-1 bg-transparent text-sm max-w-full break-words">
+                                {m.role === 'assistant' ? (
+                                    <div className="max-w-full break-words overflow-hidden prose text-sm">
+                                        <LLMOutputRenderer text={m.text} isStreamFinished={!m.streaming} />
+                                        {m.streaming ? <div className="text-xs text-muted-foreground mt-1">• streaming</div> : null}
+                                    </div>
+                                ) : (
+                                    <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                                )}
+                            </div>
+                            {/* Footer action icons shown on hover (below each message, right aligned) */}
+                            <div className="mt-1 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                <div className="flex items-center space-x-2">
+                                    {m.role === 'user' ? (
+                                        <>
+                                            <button className="p-1 rounded hover:bg-neutral-800" title="Copy" onClick={() => void handleCopyText(m.text)}>
+                                                <Copy className="h-4 w-4 text-muted-foreground" />
+                                            </button>
+                                            <button className="p-1 rounded hover:bg-neutral-800" title="Edit" onClick={() => handleEditText(m.text)}>
+                                                <Edit2 className="h-4 w-4 text-muted-foreground" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button className="p-1 rounded hover:bg-neutral-800" title="Retry" onClick={() => handleRetry(m.text)}>
+                                                <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                                            </button>
+                                            <button className="p-1 rounded hover:bg-neutral-800" title="Copy" onClick={() => void handleCopyText(m.text)}>
+                                                <Copy className="h-4 w-4 text-muted-foreground" />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
 
-            {/* Prompt and buttons */}
-            <div className="flex items-end space-x-2">
-                <div className="flex-1 min-w-0 flex items-end space-x-2">
-                {/* File picker button - hide during animation */}
-                {!isAnimating && (
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={disabled || isProcessing}
-                        className="h-10 w-10 p-0 flex-shrink-0"
-                    >
-                        <Upload className="h-5 w-5 text-muted-foreground" />
-                    </Button>
-                )}
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png"
-                    onChange={handleFileInput}
-                    className="hidden"
-                    disabled={disabled || isProcessing}
-                />
 
-                {/* Tools toggle - hide during animation */}
-                {!isAnimating && (
-                    <div className="relative">
-                        <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setToolsOpen(v => !v)}
-                            disabled={disabled || isProcessing}
-                            className="h-10 w-10 p-0 flex-shrink-0"
-                            aria-label="Tools"
-                        >
-                            <SettingsIcon className="h-5 w-5 text-muted-foreground" />
-                        </Button>
-                        {toolsOpen && (
-                            <div ref={toolsContainerRef} className="absolute right-0 bottom-full mb-2 w-48 bg-background border rounded p-2 shadow-lg z-50 text-left">
-                                {/* small arrow pointing to the button */}
-                                <div className="absolute right-3 -bottom-2 w-3 h-3 bg-background rotate-45 border-l border-t" />
-                                <ToggleGroup
-                                    type="multiple"
-                                    value={selectedContentTypes}
-                                    onValueChange={setSelectedContentTypes}
-                                    className="flex flex-col space-y-2 items-start"
-                                >
-                                    <ToggleGroupItem value="quiz" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                        <BookOpen className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                        Quiz
-                                    </ToggleGroupItem>
-                                    <ToggleGroupItem value="flashcards" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                        <Layers className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                        Flashcards
-                                    </ToggleGroupItem>
-                                    <ToggleGroupItem value="match_the_following" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                        <Shuffle className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                        Match the Following
-                                    </ToggleGroupItem>
-                                </ToggleGroup>
-                            </div>
-                        )}
-                    </div>
-                )}
 
-                {/* Prompt textarea */}
-                <Textarea
-                    ref={textareaRef}
-                    value={prompt}
-                    onChange={handlePromptChange}
-                    onKeyDown={handleKeyDown}
-                    placeholder={isFirstSession ? "Ask me anything or upload files..." : "Type your message..."}
-                    className={`flex-1 self-end resize-none overflow-y-auto text-sm px-3 py-2 bg-transparent placeholder:text-muted-foreground !border-0 !outline-none !ring-0 focus:ring-0 focus-visible:ring-0 shadow-none max-h-[200px]`}
-                    style={{ background: 'transparent', color: 'hsl(var(--foreground))' }}
-                    disabled={disabled || isProcessing || isAnimating}
-                    rows={1}
-                />
+            {/* Prompt (textarea) above, controls (buttons) below */}
+        <div className="flex flex-col w-full">
+            <div className="min-w-0 px-2 py-1">
+                    <Textarea
+                        ref={textareaRef}
+                        value={prompt}
+                        onChange={handlePromptChange}
+                        onKeyDown={handleKeyDown}
+                        placeholder={isFirstSession ? (disabled ? "Enter your prompt (set API key to enable processing)..." : "Ask me anything or upload files...") : (disabled ? "Enter your message (API key required to process)" : "Type your message...")}
+                        className={`w-full resize-none overflow-y-auto text-sm px-2 py-2 bg-transparent placeholder:text-muted-foreground focus:ring-0 focus-visible:ring-0 shadow-none max-h-[240px] min-h-[44px] leading-snug`}
+                        style={{
+                            background: 'transparent',
+                            color: 'hsl(var(--foreground))',
+                            boxShadow: 'none',
+                            outline: 'none',
+                            borderColor: 'transparent',
+                            border: '1px solid #191A1A',
+                            borderRadius: '6px',
+                            WebkitAppearance: 'none',
+                            MozAppearance: 'none',
+                            appearance: 'none'
+                        }}
+                        disabled={isProcessing || isAnimating}
+                        rows={2}
+                    />
                 </div>
 
-                {/* Send icon button */}
-                <Button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={(!prompt.trim() && uploadedFiles.length === 0) || disabled || isProcessing || isStreaming || isAnimating}
-                    variant="ghost"
-                    size="icon"
-                    className="self-end rounded-full bg-accent/90 text-accent-foreground flex items-center justify-center p-0"
-                    aria-label="Send"
-                >
-                    {(isProcessing || isStreaming || isAnimating) ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Send className="h-4 w-4" />
-                    )}
-                </Button>
+                <div className="flex items-center justify-between py-1">
+                    <div className="flex items-center space-x-2">
+                        {/* File picker button - hide during animation */}
+                        {!isAnimating && (
+                            <>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={disabled || isProcessing}
+                                    className="h-10 w-10 p-0 flex-shrink-0"
+                                >
+                                    <Upload className="h-5 w-5 text-muted-foreground" />
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png"
+                                    onChange={handleFileInput}
+                                    className="hidden"
+                                    disabled={disabled || isProcessing}
+                                />
+
+                                {/* Tools toggle - hide during animation */}
+                                <div className="relative">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setToolsOpen(v => !v)}
+                                        disabled={disabled || isProcessing}
+                                        className="h-10 w-10 p-0 flex-shrink-0"
+                                        aria-label="Tools"
+                                    >
+                                        <VscSettings className="h-5 w-5 text-muted-foreground" />
+                                    </Button>
+                                    {toolsOpen && (
+                                        <div ref={toolsContainerRef} className="absolute right-0 bottom-full mb-2 w-48 bg-background border rounded p-2 shadow-lg z-50 text-left">
+                                            {/* small arrow pointing to the button */}
+                                            <div className="absolute right-3 -bottom-2 w-3 h-3 bg-background rotate-45 border-l border-t" />
+                                            <ToggleGroup
+                                                type="multiple"
+                                                value={selectedContentTypes}
+                                                onValueChange={setSelectedContentTypes}
+                                                className="flex flex-col space-y-2 items-start"
+                                            >
+                                                <ToggleGroupItem value="quiz" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                    <BookOpen className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                    Quiz
+                                                </ToggleGroupItem>
+                                                <ToggleGroupItem value="flashcards" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                    <Layers className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                    Flashcards
+                                                </ToggleGroupItem>
+                                                <ToggleGroupItem value="match_the_following" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                    <Shuffle className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                    Match the Following
+                                                </ToggleGroupItem>
+                                            </ToggleGroup>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Send icon button */}
+                    <div className="ml-2">
+                        <Button
+                            type="button"
+                            onClick={() => void handleSubmit()}
+                            disabled={(!prompt.trim() && uploadedFiles.length === 0) || disabled || isProcessing || isStreaming || isAnimating}
+                            variant="ghost"
+                            size="icon"
+                            className="rounded-full bg-accent/90 text-accent-foreground flex items-center justify-center p-0"
+                            aria-label="Send"
+                        >
+                            {(isProcessing || isStreaming || isAnimating) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <TbArrowUp className="h-4 w-4" />
+                            )}
+                        </Button>
+                    </div>
+                </div>
             </div>
         </div>
 
         {/* Floating uploaded-files popup positioned outside the prompt geometry */}
-        {uploadedFiles.length > 0 && popupPos && (
-            <div style={{ position: 'fixed', left: popupPos.left, top: popupPos.top, zIndex: 60 }}>
+        {uploadedFiles.length > 0 && (
+            <div style={{ position: 'fixed', left: 16, top: 16, zIndex: 60 }}>
                 <div className="bg-background border rounded shadow-lg p-2 space-y-2 w-64">
                     {uploadedFiles.map(f => {
                         const IconComponent = getFileIcon(f.type);

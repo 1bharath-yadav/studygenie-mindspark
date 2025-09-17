@@ -288,3 +288,43 @@
     opacity: 1;
   }
 }
+
+/* Responsive helpers and mobile-first container rules */
+@layer base {
+  /* Fluid container that caps width and centers content */
+  .container {
+    width: min(100% - 2rem, 70ch);
+    margin-inline: auto;
+    padding-inline: 0.5rem;
+  }
+
+  /* Media that scales down on small screens */
+  img, video, svg, canvas {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* Prevent tables, code blocks and pre from overflowing */
+  pre, code, table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Improve text sizing and accessibility on mobile */
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Content-driven breakpoints (mobile-first) */
+  @media (min-width: 600px) {
+    .container { width: min(100% - 3rem, 75ch); }
+  }
+
+  @media (min-width: 900px) {
+    .container { width: min(100% - 4rem, 85ch); }
+  }
+
+  /* Utility to avoid accidental horizontal scrolling */
+  .no-overflow-x { overflow-x: hidden; }
+}

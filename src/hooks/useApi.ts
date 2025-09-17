@@ -72,8 +72,8 @@ const ENDPOINTS = {
     llm: {
         models: '/api/v1/llm/models',
         generate: '/api/v1/llm/generate',
-        // Assuming processFiles exists or adjust
-        processFiles: '/api/v1/llm/process-files',
+        // Structured streaming endpoint (expects selected content types). Use /chat-stream for conversational flows.
+        processFiles: '/api/v1/llm/stream-structured-content',
     },
     // analytics endpoints removed
     // Model preferences not implemented in backend, keeping stubs
@@ -99,7 +99,18 @@ export const useHealthCheck = () => {
 export const useCurrentUser = (options?: { enabled?: boolean }) => {
     return useQuery({
         queryKey: QUERY_KEYS.user,
-        queryFn: () => apiClient.get<AuthResponse>(ENDPOINTS.auth.profile).then(res => res.user),
+        queryFn: async () => {
+            // Prefer sessionStorage-stored user to avoid extra DB/API calls
+            try {
+                const s = sessionStorage.getItem('studygenie_current_user');
+                if (s) return JSON.parse(s) as AuthResponse['user'];
+            } catch (e) {
+                // ignore
+            }
+            const res = await apiClient.get<AuthResponse>(ENDPOINTS.auth.profile).then(r => r.user);
+            try { sessionStorage.setItem('studygenie_current_user', JSON.stringify(res)); } catch (e) {}
+            return res;
+        },
         retry: false,
         enabled: options?.enabled !== false,
     });
@@ -396,16 +407,52 @@ export const useSetDefaultModel = () => {
 export const useRecentSessions = () => {
     return useQuery({
         queryKey: ['recent-sessions'],
-        // Use consistent endpoint format (no trailing slash)
-        queryFn: () => apiClient.get<{ sessions: any[] }>('/api/v1/session').then(res => res.sessions),
+        queryFn: async () => {
+            // Prefer session cache first
+            try {
+                const s = sessionStorage.getItem('studygenie_recent_sessions');
+                if (s) return JSON.parse(s) as any[];
+            } catch (e) {}
+            const res = await apiClient.get<{ sessions: any[] }>('/api/v1/session').then(r => r.sessions);
+            try { sessionStorage.setItem('studygenie_recent_sessions', JSON.stringify(res)); } catch (e) {}
+            return res;
+        },
         staleTime: 60_000,
+    });
+};
+
+// Subjects and content structure
+export const useSubjects = () => {
+    return useQuery({
+        queryKey: ['subjects'],
+        queryFn: async () => {
+            try {
+                const s = sessionStorage.getItem('studygenie_subjects');
+                if (s) return JSON.parse(s);
+            } catch (e) {}
+            const res = await apiClient.get('/api/v1/subjects/');
+            try { sessionStorage.setItem('studygenie_subjects', JSON.stringify(res)); } catch (e) {}
+            return res;
+        },
+        staleTime: 5 * 60 * 1000,
+        retry: false,
     });
 };
 
 export const useGetSession = (sessionId?: string) => {
     return useQuery({
         queryKey: ['session', sessionId],
-        queryFn: () => apiClient.get(`/api/v1/session/${sessionId}`),
+        queryFn: async () => {
+            if (!sessionId) throw new Error('sessionId required');
+            try {
+                const cacheKey = `studygenie_session_${sessionId}`;
+                const s = sessionStorage.getItem(cacheKey);
+                if (s) return JSON.parse(s);
+            } catch (e) {}
+            const res = await apiClient.get(`/api/v1/session/${sessionId}`);
+            try { sessionStorage.setItem(`studygenie_session_${sessionId}`, JSON.stringify(res)); } catch (e) {}
+            return res;
+        },
         enabled: !!sessionId,
     });
 };

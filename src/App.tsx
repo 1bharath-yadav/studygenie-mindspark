@@ -8,9 +8,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";
+import DataExport from "./pages/DataExport";
 // Dashboard page removed
 // Recommendations page removed
 import Sessions from "./pages/Sessions";
+import Subjects from "./pages/Subjects";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -42,7 +44,9 @@ const App = () => (
               {/* Dashboard route removed */}
               {/* Recommendations route removed */}
               <Route path="/sessions" element={<Sessions />} />
+              <Route path="/subjects" element={<Subjects />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/data-export" element={<DataExport />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

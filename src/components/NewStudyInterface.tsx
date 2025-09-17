@@ -10,6 +10,7 @@ import { FlashcardViewer } from '@/components/study/FlashcardViewer';
 import { IntegratedAIAssistant } from '@/components/IntegratedAIAssistant';
 import { useApiKeys, useApiKeyStatus, useCurrentUser, useStudent, useSaveLearningActivity } from '@/hooks/useApi';
 import { useToast } from '@/hooks/use-toast';
+import { useSubjects } from '@/hooks/useApi';
 import {
     BookOpen,
     Brain,
@@ -80,6 +81,48 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         }
     }, []);
 
+        // Handle deep-link/session filters created by Subjects page
+        useEffect(() => {
+            try {
+                const rawFilters = sessionStorage.getItem('studygenie_session_filters');
+                if (!rawFilters) return;
+                const filters = JSON.parse(rawFilters);
+                // Remove the filters once consumed
+                sessionStorage.removeItem('studygenie_session_filters');
+
+                // If there's already a session id, keep using it; otherwise create a new one
+                let sid = sessionStorage.getItem('studygenie_session_id');
+                if (!sid) {
+                    sid = `s_${Math.random().toString(36).slice(2, 9)}`;
+                    sessionStorage.setItem('studygenie_session_id', sid);
+                    setSessionId(sid);
+                }
+
+                // Create minimal learning content metadata so the study interface can show context
+                const meta = {
+                    subject_name: filters.subject?.subject_name || filters.subject?.name || null,
+                    subject_id: filters.subject?.subject_id || null,
+                    chapter_name: filters.chapter?.chapter_name || null,
+                    chapter_id: filters.chapter?.chapter_id || null,
+                    concept_name: filters.concept?.concept_name || null,
+                    concept_id: filters.concept?.concept_id || null,
+                };
+
+                const initialContent = {
+                    metadata: meta,
+                    summary: `Session initialized for ${meta.subject_name || 'selected subject'}${meta.chapter_name ? ' • ' + meta.chapter_name : ''}${meta.concept_name ? ' • ' + meta.concept_name : ''}`,
+                } as any;
+
+                setLearningContent(initialContent);
+                try { sessionStorage.setItem('studygenie_learning_content', JSON.stringify(initialContent)); } catch (e) {}
+
+                // Open assistant so the student can continue or ask the assistant to generate materials
+                setAssistantOpen(true);
+            } catch (e) {
+                console.error('Failed to process session filters:', e);
+            }
+        }, []);
+
     // Save content to session storage whenever it changes
     useEffect(() => {
         if (learningContent) {
@@ -116,6 +159,9 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
     // pass empty provider to avoid TypeScript missing-argument error; the hook will be a no-op
     const { data: apiKeyStatus } = useApiKeyStatus('');
     const saveLearningActivityMutation = useSaveLearningActivity();
+    const { data: subjectsData, isLoading: subjectsLoading } = useSubjects();
+
+    const [selectedSubject, setSelectedSubject] = useState<any | null>(null);
 
     const studentName = currentUser?.name || 'Student';
     const gradeLevel = currentUser?.grade_level || 'High School';
@@ -323,6 +369,18 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         console.log('🎯 State updated, new learningContent should be:', actualContent);
     };
 
+    const openSubjectDetail = (subject: any) => {
+        setSelectedSubject(subject);
+    };
+
+    const closeSubjectDetail = () => setSelectedSubject(null);
+
+    const handleContinueSession = (subject: any, chapter?: any, concept?: any) => {
+        // For now, navigate to sessions page and potentially pass filters via state
+        navigate('/sessions');
+        closeSubjectDetail();
+    };
+
     // Clear pending timeout on unmount
     useEffect(() => {
         return () => {
@@ -495,6 +553,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full w-full">
                     {/* Right Panel - Generated Content (full width) */}
                     <div className={`lg:col-span-12 space-y-4`}>
+                        {/* Subjects are now shown on the dedicated Subjects page. */}
                         {learningContent ? (
                             <div className="space-y-4">
                                 {/* Content Header */}

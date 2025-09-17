@@ -18,6 +18,8 @@ import {
     LogOut,
     Plus
 } from 'lucide-react';
+import { IoCloudDownloadOutline } from 'react-icons/io5';
+import { GoHistory } from 'react-icons/go';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -42,7 +44,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
     const menuItems = [
         { id: 'home', label: 'Study Interface', icon: Home, path: '/' },
-        { id: 'learning-history', label: 'Learning History', icon: BookOpen, path: '/sessions' }
+        { id: 'learning-history', label: 'Learning History', icon: GoHistory, path: '/sessions' },
+        { id: 'subjects', label: 'Subjects', icon: BookOpen, path: '/subjects' }
     ];
 
     const handleNavigation = (path: string) => {
@@ -173,9 +176,22 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                     onClick={() => setProfileOpen(v => !v)}
                                 >
                                     <div className="flex items-center space-x-3 w-full px-2">
-                                        <div className="p-2 bg-primary rounded-full">
-                                            <User className="h-4 w-4 text-primary-foreground" />
-                                        </div>
+                                        {/* Render user's profile picture when available, otherwise fallback to icon */}
+                                        {currentUser?.picture ? (
+                                            <img
+                                                src={currentUser.picture}
+                                                alt={currentUser.name ?? 'avatar'}
+                                                className="h-8 w-8 rounded-full object-cover"
+                                                onError={(e) => {
+                                                    // hide broken image so fallback renders
+                                                    (e.target as HTMLImageElement).style.display = 'none';
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="p-2 bg-primary rounded-full">
+                                                <User className="h-4 w-4 text-primary-foreground" />
+                                            </div>
+                                        )}
                                         <div className="flex-1 min-w-0 text-left">
                                             <p className="font-medium text-sm truncate">{currentUser.name}</p>
                                             <p className="text-xs text-muted-foreground truncate">{currentUser.email}</p>
@@ -186,10 +202,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                 {profileOpen && (
                                     <div className="absolute left-0 bottom-full mb-2 w-56 bg-card border rounded shadow-lg p-2 z-50">
                                         <hr className="my-2 border-border" />
-                                        <button className="w-full flex items-center gap-2 px-2 py-2 hover:bg-accent rounded" onClick={() => { navigate('/settings'); setIsMenuOpen(false); setProfileOpen(false); }}>
-                                            <Settings className="h-4 w-4" />
-                                            <span className="text-sm">Settings</span>
-                                        </button>
+                                        <div className="flex flex-col gap-1">
+                                            <button className="w-full flex items-center gap-2 px-2 py-2 hover:bg-accent rounded" onClick={() => { navigate('/settings'); setIsMenuOpen(false); setProfileOpen(false); }}>
+                                                <Settings className="h-4 w-4" />
+                                                <span className="text-sm">Settings</span>
+                                            </button>
+                                            <button className="w-full flex items-center gap-2 px-2 py-2 hover:bg-accent rounded" onClick={() => { navigate('/data-export'); setIsMenuOpen(false); setProfileOpen(false); }}>
+                                                <IoCloudDownloadOutline className="h-4 w-4" />
+                                                <span className="text-sm">Export Data</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>

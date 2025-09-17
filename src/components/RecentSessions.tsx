@@ -3,12 +3,27 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/api';
 import { useRecentSessions, useDeleteSession, useGetSession, useRenameSession } from '@/hooks/useApi';
 import { MoreVertical, Edit3, Trash2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 
 const RecentSessions: React.FC = () => {
     const { data: sessions, isLoading } = useRecentSessions();
     const deleteMutation = useDeleteSession();
     const renameMutation = useRenameSession();
     const [openMenu, setOpenMenu] = useState<string | null>(null);
+    const { toast } = useToast();
+
+    // rename dialog
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [renameTarget, setRenameTarget] = useState<any | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+
+    // delete confirm
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
     const navigate = useNavigate();
 
     if (isLoading) return <p className="text-sm text-muted-foreground">Loading sessions...</p>;
@@ -60,34 +75,75 @@ const RecentSessions: React.FC = () => {
                             Continue
                         </button>
 
-                        <button className="p-2 rounded text-gray-400 hover:bg-gray-800" onClick={() => setOpenMenu(openMenu === s.session_id ? null : s.session_id)} aria-label="More">
-                            <MoreVertical className="h-4 w-4" />
-                        </button>
-
-                        {openMenu === s.session_id && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-card border rounded shadow z-40">
-                                <button className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2" onClick={() => {
-                                    const newName = prompt('Enter new session name', s.session_name || '');
-                                    if (!newName) return;
-                                    renameMutation.mutate({ sessionId: s.session_id, sessionName: newName }, {
-                                        onSuccess: () => setOpenMenu(null),
-                                        onError: () => alert('Failed to rename session')
-                                    });
-                                }}>
-                                    <Edit3 className="h-4 w-4 text-muted-foreground" /> Rename
-                                </button>
-                                <button className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2" onClick={() => {
-                                    if (!confirm('Delete this session? This action cannot be undone.')) return;
-                                    deleteMutation.mutate(s.session_id);
-                                    setOpenMenu(null);
-                                }}>
-                                    <Trash2 className="h-4 w-4 text-muted-foreground" /> Delete
-                                </button>
-                            </div>
-                        )}
+                        <div className="relative">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <button className="p-2 rounded text-gray-400 hover:bg-gray-800" aria-label="More">
+                                        <MoreVertical className="h-4 w-4" />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                    <DropdownMenuItem onSelect={() => {
+                                        setRenameTarget(s);
+                                        setRenameValue(s.session_name || '');
+                                        setRenameOpen(true);
+                                        setOpenMenu(null);
+                                    }}>
+                                        <Edit3 className="h-4 w-4 text-muted-foreground mr-2" /> Rename
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => { setDeleteTarget(s); setDeleteOpen(true); setOpenMenu(null); }} className="text-destructive">
+                                        <Trash2 className="h-4 w-4 text-muted-foreground mr-2" /> Delete
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
                     </div>
                 </div>
             ))}
+
+            {/* Rename dialog */}
+            <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Rename Session</DialogTitle>
+                    </DialogHeader>
+                    <div className="mt-2">
+                        <Input value={renameValue} onChange={(e: any) => setRenameValue(e.target.value)} placeholder="Session name" />
+                        <div className="mt-4 flex justify-end space-x-2">
+                            <Button size="sm" onClick={() => setRenameOpen(false)}>Cancel</Button>
+                            <Button size="sm" onClick={() => {
+                                if (!renameTarget) return;
+                                renameMutation.mutate({ sessionId: renameTarget.session_id, sessionName: renameValue }, {
+                                    onSuccess: () => { toast({ title: 'Renamed' }); setRenameOpen(false); },
+                                    onError: () => toast({ title: 'Rename failed', variant: 'destructive' })
+                                });
+                            }}>Save</Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete dialog */}
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Session</DialogTitle>
+                    </DialogHeader>
+                    <div className="mt-2">
+                        <div className="text-sm text-muted-foreground">Are you sure you want to delete this session? This action cannot be undone.</div>
+                        <div className="mt-4 flex justify-end space-x-2">
+                            <Button size="sm" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                            <Button size="sm" variant="destructive" onClick={() => {
+                                if (!deleteTarget) return;
+                                deleteMutation.mutate(deleteTarget.session_id, {
+                                    onSuccess: () => { toast({ title: 'Deleted' }); setDeleteOpen(false); },
+                                    onError: () => toast({ title: 'Delete failed', variant: 'destructive' })
+                                });
+                            }}>Delete</Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
