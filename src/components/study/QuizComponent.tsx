@@ -237,11 +237,11 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
                     {q.options.map((opt, optIdx) => {
                       let optionClass = 'flex items-center p-2 rounded';
                       if (optIdx === q.correctAnswer) {
-                        optionClass += ' bg-green-100 border-l-4 border-green-500';
+                        optionClass += ' bg-green-900/10 border-l-4 border-green-500';
                       } else if (userAns === optIdx) {
-                        optionClass += ' bg-yellow-100 border-l-4 border-yellow-500';
+                        optionClass += ' bg-yellow-900/10 border-l-4 border-yellow-500';
                       } else {
-                        optionClass += ' bg-white';
+                        optionClass += ' bg-card';
                       }
                       return (
                         <div key={optIdx} className={optionClass}>

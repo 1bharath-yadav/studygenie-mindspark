@@ -1,8 +1,10 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useToast } from '@/hooks/use-toast';
+import { useTheme } from '@/hooks/use-theme';
 import { useProcessFiles } from '@/hooks/useApi';
 import {
     Upload,
@@ -64,6 +66,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
     const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>([]);
     const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: 'user' | 'assistant'; text: string; streaming?: boolean }>>([]);
+    const [promptHistory, setPromptHistory] = useState<string[]>([]);
+    const [historyIndex, setHistoryIndex] = useState<number>(-1); // -1 means current editing buffer
     const [autoScroll, setAutoScroll] = useState(true);
     const [toolsOpen, setToolsOpen] = useState(false);
     // Compute initial 'first session' synchronously from localStorage so that when the
@@ -99,12 +103,15 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const toolsContainerRef = useRef<HTMLDivElement | null>(null);
+    const toolsToggleRef = useRef<HTMLDivElement | null>(null);
+    const [toolsPopupStyle, setToolsPopupStyle] = useState<React.CSSProperties | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const userInteractedRef = useRef(false);
     const forceCenterRef = useRef(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const { toast } = useToast();
     const processFilesMutation = useProcessFiles();
+    const { theme } = useTheme();
     const isProcessing = processFilesMutation.status === 'pending';
     const [isStreaming, setIsStreaming] = useState(false);
 
@@ -140,6 +147,28 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px';
         }
     }, []);
+
+    // Prompt history persistence key (session-scoped when possible, otherwise per-student)
+    const getPromptHistoryKey = () => {
+        try {
+            const sid = sessionId ?? (typeof window !== 'undefined' ? sessionStorage.getItem('studygenie_session_id') : null);
+            return `studygenie_prompt_history_${sid || studentId}`;
+        } catch (e) { return `studygenie_prompt_history_${studentId}`; }
+    };
+
+    // Restore prompt history from localStorage
+    useEffect(() => {
+        try {
+            const key = getPromptHistoryKey();
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) setPromptHistory(parsed);
+            }
+        } catch (e) {
+            // ignore
+        }
+    }, [studentId, sessionId]);
 
     useEffect(() => {
         adjustTextareaHeight();
@@ -290,15 +319,17 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     // Auto-scroll the chat messages container when new messages arrive
     useEffect(() => {
         if (!autoScroll) return;
-        const el = messagesRef.current;
-        if (!el) return;
-        // scroll to bottom smoothly
+        const container = containerRef.current;
+        if (!container) return;
+        // scroll the outer container to the bottom smoothly
         try {
-            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+            container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
         } catch (e) {
-            el.scrollTop = el.scrollHeight;
+            container.scrollTop = container.scrollHeight;
         }
     }, [chatMessages, autoScroll]);
+
+    // (wheel forwarding removed to restore natural scrolling behavior)
 
 
     // Persist chat messages to localStorage whenever they change.
@@ -330,6 +361,57 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         return () => {
             document.removeEventListener('pointerdown', onPointerDown);
             document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [toolsOpen]);
+
+    // Position the tools popup in a fixed portal so it can escape clipping.
+    useLayoutEffect(() => {
+        if (!toolsOpen || !toolsToggleRef.current) {
+            setToolsPopupStyle(null);
+            return;
+        }
+
+        const updatePosition = () => {
+            const btn = toolsToggleRef.current as HTMLElement;
+            if (!btn) return;
+            const rect = btn.getBoundingClientRect();
+            const popupWidth = 192; // fallback width
+
+            // Horizontal clamp: keep popup inside viewport with a small margin
+            const left = Math.min(Math.max(8, rect.right - popupWidth), window.innerWidth - popupWidth - 8);
+
+            const applyTopForHeight = (popupHeight: number) => {
+                // Prefer placing above the button; clamp to top=8 if not enough space
+                let computedTop = rect.top - 8 - popupHeight;
+                if (computedTop < 8) computedTop = 8;
+                setToolsPopupStyle({ position: 'fixed', left: `${left}px`, top: `${computedTop}px` });
+            };
+
+            // If the popup has already been rendered, measure it directly
+            if (toolsContainerRef.current) {
+                const pr = toolsContainerRef.current.getBoundingClientRect();
+                applyTopForHeight(pr.height || 200);
+                return;
+            }
+
+            // Otherwise, schedule a measurement on the next animation frame after it renders
+            requestAnimationFrame(() => {
+                if (toolsContainerRef.current) {
+                    const pr = toolsContainerRef.current.getBoundingClientRect();
+                    applyTopForHeight(pr.height || 200);
+                } else {
+                    // final fallback: use an estimated height
+                    applyTopForHeight(200);
+                }
+            });
+        };
+
+        updatePosition();
+        window.addEventListener('resize', updatePosition);
+        window.addEventListener('scroll', updatePosition, { passive: true });
+        return () => {
+            window.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition);
         };
     }, [toolsOpen]);
 
@@ -396,6 +478,30 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         };
     }, [uploadedFiles]);
 
+    // Ensure messages area has enough bottom padding so per-message absolute
+    // action icons don't overlap the prompt. Recompute when textarea height or
+    // window size changes.
+    useEffect(() => {
+        const adjustPadding = () => {
+            const msgs = messagesRef.current;
+            const ta = textareaRef.current;
+            if (!msgs) return;
+            const taHeight = ta ? ta.offsetHeight : 48;
+            const controlRow = 40; // approximate height of control row/buttons
+            const extra = 12; // breathing room
+            msgs.style.paddingBottom = `${taHeight + controlRow + extra}px`;
+        };
+
+        adjustPadding();
+        const ro = new ResizeObserver(() => adjustPadding());
+        if (textareaRef.current) ro.observe(textareaRef.current);
+        window.addEventListener('resize', adjustPadding);
+        return () => {
+            try { ro.disconnect(); } catch (e) {}
+            window.removeEventListener('resize', adjustPadding);
+        };
+    }, [prompt]);
+
     // Listen for code-edit events from CodeBlock so we can load code into the prompt for editing
     useEffect(() => {
         const onEdit = (ev: Event) => {
@@ -452,6 +558,22 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         // emit the matching 'end' event when appropriate.
         let globalProcessingStarted = false;
         try {
+            // Save prompt to history immediately so we have a record even if the LLM call fails.
+            try {
+                if (usedPrompt) {
+                    setPromptHistory(prev => {
+                        // Avoid duplicate consecutive entries
+                        const last = prev[0] ?? null;
+                        if (last === usedPrompt) return prev;
+                        const next = [usedPrompt, ...prev].slice(0, 50); // keep recent 50
+                        try { localStorage.setItem(getPromptHistoryKey(), JSON.stringify(next)); } catch (e) {}
+                        return next;
+                    });
+                    setHistoryIndex(-1);
+                }
+            } catch (e) {
+                // ignore history failures
+            }
             if (selectedContentTypes && selectedContentTypes.length > 0) {
                 emitProcessingStart();
                 globalProcessingStarted = true;
@@ -502,6 +624,16 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
             console.log('Sending user query:', userQuery); // Debug log
 
+            // Persist the user's message into the chat immediately so it remains
+            // visible and is saved to localStorage even if the LLM request fails.
+            try {
+                const userMsgId = Math.random().toString(36).slice(2, 9);
+                setChatMessages(prev => [...prev, { id: userMsgId, role: 'user', text: userQuery }]);
+            } catch (e) {
+                // ignore persistence failures
+                console.warn('Failed to add user message to chat state', e);
+            }
+
             // Attach session_id if present in sessionStorage so server can append to history
             const storedSessionId = sessionStorage.getItem('studygenie_session_id');
             const additionalData: Record<string, any> = {
@@ -542,10 +674,10 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     throw new Error('Chat stream request failed: ' + txt);
                 }
 
-                // Prepare chat state: add user's message and an empty assistant message ready to stream into
-                const userMsgId = Math.random().toString(36).slice(2, 9);
+                // Prepare chat state: add an empty assistant message ready to stream into.
+                // The user's message was already added above so avoid duplicating it here.
                 const assistantMsgId = Math.random().toString(36).slice(2, 9);
-                setChatMessages(prev => [...prev, { id: userMsgId, role: 'user', text: userQuery }, { id: assistantMsgId, role: 'assistant', text: '', streaming: true }]);
+                setChatMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', text: '', streaming: true }]);
 
                 let finalOutput: any = null;
 
@@ -625,6 +757,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
                 // Notify parent with final output
                 if (onContentGenerated) onContentGenerated(finalOutput || null);
+                // Fire-and-forget: save activity for analytics
+                try { void saveActivity('chat_response', finalOutput || { prompt: userQuery }); } catch (e) {}
                 result = { session_id: finalOutput?.session_id || null, llm_response: finalOutput || null };
                 } else {
                     // If structured content selected, use streaming NDJSON endpoint so frontend can incrementally render
@@ -662,10 +796,11 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                         throw new Error('Stream request failed: ' + txt);
                     }
 
-                    // Add user message and create an empty assistant message that we'll stream into
-                    const userMsgId = Math.random().toString(36).slice(2, 9);
+                    // Create an empty assistant message that we'll stream into. The
+                    // user's message was already appended above so we only add the
+                    // assistant placeholder here.
                     const assistantMsgId = Math.random().toString(36).slice(2, 9);
-                    setChatMessages(prev => [...prev, { id: userMsgId, role: 'user', text: userQuery }, { id: assistantMsgId, role: 'assistant', text: '', streaming: true }]);
+                    setChatMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', text: '', streaming: true }]);
 
                     const reader = resp.body?.getReader();
                     if (!reader) throw new Error('Streaming not supported');
@@ -741,6 +876,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     }
 
                     if (finalOutput && onContentGenerated) onContentGenerated(finalOutput);
+                    // Fire-and-forget: save structured content activity
+                    try { void saveActivity('structured_content', finalOutput || { prompt: userQuery, types: selectedContentTypes }); } catch (e) {}
                     result = { session_id: finalOutput?.session_id || null, llm_response: finalOutput || null };
                 } else {
                     // fallback to existing non-streaming mutation for small flows
@@ -756,6 +893,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                         try { sessionStorage.setItem('studygenie_session_id', returnedSid); } catch (e) {}
                     }
                     if (onContentGenerated) onContentGenerated(result?.llm_response || result || null);
+                    // Fire-and-forget: save activity for non-stream fallback
+                    try { void saveActivity('file_processing', result?.llm_response || result || { prompt: userQuery }); } catch (e) {}
                 }
             }
 
@@ -772,6 +911,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 description: "Failed to process your files. Please try again.",
                 variant: "destructive",
             });
+            // even on error we already saved the prompt above; ensure UI clears any streaming flags
         } finally {
             // ensure mutation state is reset (react-query handles isLoading)
             // emit processing-end only if we previously started global processing
@@ -779,15 +919,83 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
         }
     };
 
+    // Persist a generated activity to the backend analytics service (non-blocking)
+    const saveActivity = async (activityType: string, payload: any, score?: number | null, timeSpentSeconds?: number | null) => {
+        try {
+            const body = {
+                activity_type: activityType,
+                payload: payload || {},
+                score: score ?? null,
+                time_spent_seconds: timeSpentSeconds ?? null,
+            } as any;
+
+            const authToken = localStorage.getItem('authToken');
+            const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+            const resp = await fetch('/api/v1/analytics/activity', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            });
+
+            if (!resp.ok) {
+                // ignore failures for now but log for debugging
+                const txt = await resp.text().catch(() => '');
+                console.debug('Failed to save activity', resp.status, txt);
+            }
+        } catch (e) {
+            console.debug('saveActivity error', e);
+        }
+    };
+
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Provide prompt-history navigation with ArrowUp / ArrowDown when the caret is at the start/end
+        const ta = textareaRef.current;
+        const caretAtStart = ta ? (ta.selectionStart === 0 && ta.selectionEnd === 0) : false;
+        const caretAtEnd = ta ? (ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length) : false;
+
+        if (e.key === 'ArrowUp' && caretAtStart) {
+            e.preventDefault();
+            if (promptHistory.length === 0) return;
+            setHistoryIndex(prev => {
+                const nextIdx = prev < 0 ? 0 : Math.min(prev + 1, promptHistory.length - 1);
+                const item = promptHistory[nextIdx] ?? '';
+                setPrompt(item);
+                // place caret at end
+                requestAnimationFrame(() => { textareaRef.current?.setSelectionRange(item.length, item.length); });
+                return nextIdx;
+            });
+            return;
+        }
+
+        if (e.key === 'ArrowDown' && caretAtEnd) {
+            e.preventDefault();
+            if (promptHistory.length === 0) return;
+            setHistoryIndex(prev => {
+                if (prev <= 0) {
+                    // back to live editing buffer
+                    setPrompt('');
+                    return -1;
+                }
+                const nextIdx = prev - 1;
+                const item = promptHistory[nextIdx] ?? '';
+                setPrompt(item);
+                requestAnimationFrame(() => { textareaRef.current?.setSelectionRange(item.length, item.length); });
+                return nextIdx;
+            });
+            return;
+        }
+
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             if (!disabled && !isProcessing && !isAnimating) handleSubmit();
         }
-    }, [disabled, isProcessing, isAnimating, handleSubmit]);
+    }, [disabled, isProcessing, isAnimating, handleSubmit, promptHistory]);
 
     const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setPrompt(e.target.value);
+        setHistoryIndex(-1);
     }, []);
 
     // Action handlers: copy, edit (load into prompt), retry
@@ -819,29 +1027,24 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             // centered view: add horizontal padding so content isn't flush to container edges
             return "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] max-w-2xl bg-background rounded-lg px-4 py-2 z-50 space-y-0";
         }
-        // bottom-aligned: remove container border and padding so prompt sits flush with container edge
-        return "fixed bottom-4 left-1/2 -translate-x-1/2 w-[60vw] max-w-2xl bg-background rounded-lg px-4 py-2 z-50 space-y-0";
+        // bottom-aligned: container grows upward from the bottom (enlarges from bottom to top)
+        // use flex-col and zero vertical padding; make the container itself scrollable
+        return "fixed bottom-4 left-1/2 -translate-x-1/2 w-[70vw] max-w-3xl bg-background rounded-lg px-4 py-0 z-50 flex flex-col space-y-0 overflow-y-auto";
     };
 
     const getContainerStyle = () => {
         if (isFirstSession) {
-            return { backgroundColor: '#191A1A', border: '1px solid #3a3a3a' };
+            return { backgroundColor: theme === 'light' ? '#DAFFEF' : '#191A1A', border: theme === 'light' ? '1px solid #c7dccf' : '1px solid #3a3a3a', fontSize: 'calc(1rem + 1px)' };
         } else {
-            return { maxHeight: 'calc(100vh - 48px)', backgroundColor: '#191A1A', border: '1px solid #3a3a3a' };
+            // limit how large the assistant grows so it leaves visible page chrome
+            // increased top inset keeps the assistant lower on the page
+            return { maxHeight: 'calc(107vh - 160px)', backgroundColor: theme === 'light' ? '#DAFFEF' : '#191A1A', border: theme === 'light' ? '1px solid #c7dccf' : '1px solid #3a3a3a', fontSize: 'calc(1rem + 1px)' };
         }
     };
 
-    // If user toggles any structured content type, immediately hide the compact assistant
-    // so the app can show the full processing/structured UI. This must run immediately on user action.
-    useEffect(() => {
-        try {
-            if (selectedContentTypes && selectedContentTypes.length > 0) {
-                // Hide compact assistant UI immediately
-                try { window.dispatchEvent(new CustomEvent('studygenie:hide-assistant')); } catch (e) {}
-                setIsFirstSession(false);
-            }
-        } catch (e) {}
-    }, [selectedContentTypes]);
+    // NOTE: do not hide the assistant immediately when selecting content types.
+    // The assistant should remain visible so the user can confirm/submit their choices.
+    // Hiding and processing will occur when the user submits (see handleSubmit).
 
     return (
         <>
@@ -855,15 +1058,16 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             
 
             {/* Chat messages panel - only show if not first session and has messages */}
-            {!isFirstSession && chatMessages.length > 0 && (
-                <div
-                    ref={messagesRef}
-                    className="overflow-y-auto overflow-x-hidden mb-3"
-                    style={{ maxHeight: 'calc(50vh)', padding: 0 }}
-                >
-                    {chatMessages.map((m, i) => (
-                        <div key={m.id} className={`mb-3 group ${m.role === 'user' ? 'text-right' : 'text-left'}`}> 
-                            <div className="inline-block p-1 bg-transparent text-sm max-w-full break-words">
+            {!isFirstSession && (
+                <div className="w-full flex-1 flex flex-col min-h-0">
+                    <div
+                        ref={messagesRef}
+                        className="relative overflow-x-hidden flex-1"
+                        style={{ padding: 0, marginBottom: 0 }}
+                    >
+            {chatMessages.map((m, i) => (
+                <div key={m.id} className={`mb-0 group relative ${m.role === 'user' ? 'text-right' : 'text-left'}`}> 
+                            <div className="inline-block p-0 bg-transparent text-sm max-w-full break-words">
                                 {m.role === 'assistant' ? (
                                     <div className="max-w-full break-words overflow-hidden prose text-sm">
                                         <LLMOutputRenderer text={m.text} isStreamFinished={!m.streaming} />
@@ -873,25 +1077,25 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                                     <div className="whitespace-pre-wrap break-words">{m.text}</div>
                                 )}
                             </div>
-                            {/* Footer action icons shown on hover (below each message, right aligned) */}
-                            <div className="mt-1 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                                <div className="flex items-center space-x-2">
+                            {/* Action icons shown on hover as a row beneath the message so they do not overlap the prompt */}
+                            <div className={`mt-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none group-hover:pointer-events-auto ${m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}`}>
+                                <div className="flex items-center space-x-1">
                                     {m.role === 'user' ? (
                                         <>
-                                            <button className="p-1 rounded hover:bg-neutral-800" title="Copy" onClick={() => void handleCopyText(m.text)}>
-                                                <Copy className="h-4 w-4 text-muted-foreground" />
+                                            <button className="p-0.5 rounded hover:bg-neutral-800" title="Copy" onClick={() => void handleCopyText(m.text)}>
+                                                <Copy className="h-3 w-3 text-muted-foreground" />
                                             </button>
-                                            <button className="p-1 rounded hover:bg-neutral-800" title="Edit" onClick={() => handleEditText(m.text)}>
-                                                <Edit2 className="h-4 w-4 text-muted-foreground" />
+                                            <button className="p-0.5 rounded hover:bg-neutral-800" title="Edit" onClick={() => handleEditText(m.text)}>
+                                                <Edit2 className="h-3 w-3 text-muted-foreground" />
                                             </button>
                                         </>
                                     ) : (
                                         <>
-                                            <button className="p-1 rounded hover:bg-neutral-800" title="Retry" onClick={() => handleRetry(m.text)}>
-                                                <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                                            <button className="p-0.5 rounded hover:bg-neutral-800" title="Edit" onClick={() => handleEditText(m.text)}>
+                                                <Edit2 className="h-3 w-3 text-muted-foreground" />
                                             </button>
-                                            <button className="p-1 rounded hover:bg-neutral-800" title="Copy" onClick={() => void handleCopyText(m.text)}>
-                                                <Copy className="h-4 w-4 text-muted-foreground" />
+                                            <button className="p-0.5 rounded hover:bg-neutral-800" title="Retry" onClick={() => handleRetry(m.text)}>
+                                                <RefreshCw className="h-3 w-3 text-muted-foreground" />
                                             </button>
                                         </>
                                     )}
@@ -899,6 +1103,8 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                             </div>
                         </div>
                     ))}
+                    {/* fade overlay removed per user request so messages sit flush against the prompt */}
+                    </div>
                 </div>
             )}
 
@@ -906,21 +1112,21 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
 
             {/* Prompt (textarea) above, controls (buttons) below */}
         <div className="flex flex-col w-full">
-            <div className="min-w-0 px-2 py-1">
+            <div className="min-w-0 px-2 py-0">
                     <Textarea
                         ref={textareaRef}
                         value={prompt}
                         onChange={handlePromptChange}
                         onKeyDown={handleKeyDown}
                         placeholder={isFirstSession ? (disabled ? "Enter your prompt (set API key to enable processing)..." : "Ask me anything or upload files...") : (disabled ? "Enter your message (API key required to process)" : "Type your message...")}
-                        className={`w-full resize-none overflow-y-auto text-sm px-2 py-2 bg-transparent placeholder:text-muted-foreground focus:ring-0 focus-visible:ring-0 shadow-none max-h-[240px] min-h-[44px] leading-snug`}
+                        className={`w-full resize-none overflow-y-auto text-sm px-2 py-1 bg-transparent placeholder:text-muted-foreground focus:ring-0 focus-visible:ring-0 shadow-none max-h-[120px] min-h-[36px] leading-snug`}
                         style={{
-                            background: 'transparent',
+                            background: theme === 'light' ? '#DAFFEF' : 'transparent',
                             color: 'hsl(var(--foreground))',
                             boxShadow: 'none',
                             outline: 'none',
                             borderColor: 'transparent',
-                            border: '1px solid #191A1A',
+                            border: theme === 'light' ? '1px solid #c7dccf' : '1px solid #191A1A',
                             borderRadius: '6px',
                             WebkitAppearance: 'none',
                             MozAppearance: 'none',
@@ -931,7 +1137,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     />
                 </div>
 
-                <div className="flex items-center justify-between py-1">
+                <div className="flex items-center justify-between py-0.5">
                     <div className="flex items-center space-x-2">
                         {/* File picker button - hide during animation */}
                         {!isAnimating && (
@@ -957,43 +1163,48 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                                 />
 
                                 {/* Tools toggle - hide during animation */}
-                                <div className="relative">
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => setToolsOpen(v => !v)}
-                                        disabled={disabled || isProcessing}
-                                        className="h-10 w-10 p-0 flex-shrink-0"
-                                        aria-label="Tools"
-                                    >
-                                        <VscSettings className="h-5 w-5 text-muted-foreground" />
-                                    </Button>
-                                    {toolsOpen && (
-                                        <div ref={toolsContainerRef} className="absolute right-0 bottom-full mb-2 w-48 bg-background border rounded p-2 shadow-lg z-50 text-left">
-                                            {/* small arrow pointing to the button */}
-                                            <div className="absolute right-3 -bottom-2 w-3 h-3 bg-background rotate-45 border-l border-t" />
-                                            <ToggleGroup
-                                                type="multiple"
-                                                value={selectedContentTypes}
-                                                onValueChange={setSelectedContentTypes}
-                                                className="flex flex-col space-y-2 items-start"
+                                <div className="relative" ref={toolsToggleRef}>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => setToolsOpen(v => !v)}
+                                            disabled={disabled || isProcessing}
+                                            className="h-10 w-10 p-0 flex-shrink-0"
+                                            aria-label="Tools"
+                                        >
+                                            <VscSettings className="h-5 w-5 text-muted-foreground" />
+                                        </Button>
+                                        {/* Render the tools popup in a fixed portal so it can escape container clipping */}
+                                        {toolsOpen && toolsToggleRef.current && createPortal(
+                                            <div
+                                                ref={toolsContainerRef}
+                                                style={toolsPopupStyle || undefined}
+                                                className="bg-background border rounded p-2 shadow-lg z-50 text-left w-48"
                                             >
-                                                <ToggleGroupItem value="quiz" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                                    <BookOpen className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                                    Quiz
-                                                </ToggleGroupItem>
-                                                <ToggleGroupItem value="flashcards" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                                    <Layers className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                                    Flashcards
-                                                </ToggleGroupItem>
-                                                <ToggleGroupItem value="match_the_following" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
-                                                    <Shuffle className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
-                                                    Match the Following
-                                                </ToggleGroupItem>
-                                            </ToggleGroup>
-                                        </div>
-                                    )}
+                                                <div className="absolute right-3 -bottom-2 w-3 h-3 bg-background rotate-45 border-l border-t" />
+                                                <ToggleGroup
+                                                    type="multiple"
+                                                    value={selectedContentTypes}
+                                                    onValueChange={setSelectedContentTypes}
+                                                    className="flex flex-col space-y-2 items-start"
+                                                >
+                                                    <ToggleGroupItem value="quiz" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                        <BookOpen className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                        Quiz
+                                                    </ToggleGroupItem>
+                                                    <ToggleGroupItem value="flashcards" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                        <Layers className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                        Flashcards
+                                                    </ToggleGroupItem>
+                                                    <ToggleGroupItem value="match_the_following" disabled={disabled || isProcessing} className="w-full justify-start px-3 py-3 text-left">
+                                                        <Shuffle className="h-4 w-4 mr-2 inline-block text-muted-foreground" />
+                                                        Match the Following
+                                                    </ToggleGroupItem>
+                                                </ToggleGroup>
+                                            </div>,
+                                            document.body
+                                        )}
                                 </div>
                             </>
                         )}

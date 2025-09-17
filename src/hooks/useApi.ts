@@ -408,11 +408,7 @@ export const useRecentSessions = () => {
     return useQuery({
         queryKey: ['recent-sessions'],
         queryFn: async () => {
-            // Prefer session cache first
-            try {
-                const s = sessionStorage.getItem('studygenie_recent_sessions');
-                if (s) return JSON.parse(s) as any[];
-            } catch (e) {}
+            // Fetch latest sessions from the server and cache locally for quick subsequent reads
             const res = await apiClient.get<{ sessions: any[] }>('/api/v1/session').then(r => r.sessions);
             try { sessionStorage.setItem('studygenie_recent_sessions', JSON.stringify(res)); } catch (e) {}
             return res;
@@ -426,10 +422,7 @@ export const useSubjects = () => {
     return useQuery({
         queryKey: ['subjects'],
         queryFn: async () => {
-            try {
-                const s = sessionStorage.getItem('studygenie_subjects');
-                if (s) return JSON.parse(s);
-            } catch (e) {}
+            // Always fetch subjects from API (server of truth). Cache result in sessionStorage for UX.
             const res = await apiClient.get('/api/v1/subjects/');
             try { sessionStorage.setItem('studygenie_subjects', JSON.stringify(res)); } catch (e) {}
             return res;
@@ -444,11 +437,7 @@ export const useGetSession = (sessionId?: string) => {
         queryKey: ['session', sessionId],
         queryFn: async () => {
             if (!sessionId) throw new Error('sessionId required');
-            try {
-                const cacheKey = `studygenie_session_${sessionId}`;
-                const s = sessionStorage.getItem(cacheKey);
-                if (s) return JSON.parse(s);
-            } catch (e) {}
+            // Always request the session from the API and then cache it locally for a short time.
             const res = await apiClient.get(`/api/v1/session/${sessionId}`);
             try { sessionStorage.setItem(`studygenie_session_${sessionId}`, JSON.stringify(res)); } catch (e) {}
             return res;

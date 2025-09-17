@@ -94,6 +94,18 @@ const ApiManagementSection: React.FC = () => {
     }
   };
 
+  const handleSetActive = async (id: string) => {
+    try {
+      await setActiveKeyMutation.mutateAsync(id);
+      // Ensure fresh list
+      refetchApiKeys();
+      toast({ title: "API key activated", description: "This key is now active for the provider." });
+    } catch (error) {
+      const msg = (error && (error as any).message) ? (error as any).message : JSON.stringify(error);
+      toast({ title: "Activation failed", description: msg, variant: "destructive" });
+    }
+  };
+
   // Default model concept removed; 'Activate' is now the canonical selection per use-case.
 
   return (
@@ -136,8 +148,8 @@ const ApiManagementSection: React.FC = () => {
               </div>
               <div className="flex items-center space-x-2">
                 <Badge variant={key.is_active ? "default" : "secondary"}>{key.is_active ? "Active" : "Inactive"}</Badge>
-                <Button size="sm" variant={key.is_active ? 'default' : 'outline'} onClick={() => setActiveKeyMutation.mutate(key.id)} disabled={(setActiveKeyMutation as any).isLoading || (setActiveKeyMutation as any).isPending}>
-                  {key.is_active ? 'Active' : 'Set active'}
+                <Button size="sm" variant={key.is_active ? 'default' : 'outline'} onClick={() => handleSetActive(key.id)} disabled={setActiveKeyMutation.isPending}>
+                  {setActiveKeyMutation.isPending ? (key.is_active ? 'Active' : 'Setting...') : (key.is_active ? 'Active' : 'Set active')}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => handleApiKeyDelete(key.id)} disabled={deleteApiKeyMutation.isPending}><Trash2 className="h-4 w-4 text-destructive" /></Button>
               </div>

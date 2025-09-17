@@ -39,8 +39,10 @@ const RecentSessions: React.FC = () => {
                         <div className="text-[11px] text-muted-foreground">{new Date(s.updated_at || s.created_at).toLocaleString()}</div>
                     </div>
                     <div className="flex items-center space-x-2 relative">
-                        <button
-                            className="px-3 py-1 bg-blue-600 text-white rounded"
+                        <Button
+                            variant="graphite"
+                            size="sm"
+                            className="px-3 py-1"
                             onClick={async () => {
                                 try {
                                     const res = await apiClient.get<any>(`/api/v1/session/${s.session_id}`);
@@ -73,7 +75,7 @@ const RecentSessions: React.FC = () => {
                             }}
                         >
                             Continue
-                        </button>
+                        </Button>
 
                         <div className="relative">
                             <DropdownMenu>

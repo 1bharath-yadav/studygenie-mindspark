@@ -81,6 +81,22 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
         }
     }, []);
 
+    // If there is no learning content (and no persisted study materials), open the assistant automatically
+    useEffect(() => {
+        try {
+            const sid = sessionId || sessionStorage.getItem('studygenie_session_id');
+            const persistedKey = sid ? `studygenie_study_materials_${sid}` : null;
+            const hasPersistedMaterials = persistedKey ? !!localStorage.getItem(persistedKey) : false;
+
+            if (!learningContent && !hasPersistedMaterials) {
+                // Small delay to allow the layout to mount before opening the assistant
+                setTimeout(() => setAssistantOpen(true), 50);
+            }
+        } catch (e) {
+            // ignore
+        }
+    }, [learningContent, sessionId]);
+
         // Handle deep-link/session filters created by Subjects page
         useEffect(() => {
             try {
@@ -693,7 +709,7 @@ export const NewStudyInterface: React.FC<NewStudyInterfaceProps> = ({
                                                             <div className="text-xs text-muted-foreground">{item.summary ? item.summary.substring(0, 80) : 'No summary available'}</div>
                                                         </div>
                                                         <div className="flex items-center space-x-2">
-                                                            <Button size="sm" variant="default" onClick={() => {
+                                                            <Button size="sm" variant="graphite" onClick={() => {
                                                                 // Load this item into main view
                                                                     setLearningContent(item);
                                                                     sessionStorage.setItem('studygenie_learning_content', JSON.stringify(item));

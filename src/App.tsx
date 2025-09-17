@@ -13,6 +13,7 @@ import DataExport from "./pages/DataExport";
 // Recommendations page removed
 import Sessions from "./pages/Sessions";
 import Subjects from "./pages/Subjects";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -45,6 +46,7 @@ const App = () => (
               {/* Recommendations route removed */}
               <Route path="/sessions" element={<Sessions />} />
               <Route path="/subjects" element={<Subjects />} />
+              <Route path="/analytics" element={<Analytics />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/data-export" element={<DataExport />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

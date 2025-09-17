@@ -395,78 +395,22 @@ export const LLMOutputRenderer: React.FC<LLMOutputRendererProps> = ({
     },
   });
 
-  // Enhanced auto-scroll with smooth behavior
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [userHasScrolled, setUserHasScrolled] = useState(false);
-  const [isNearBottom, setIsNearBottom] = useState(true);
-
-  // Track user scroll behavior
-  useEffect(() => {
-    if (!autoScroll) return;
-
-    const handleScroll = () => {
-      const el = containerRef.current;
-      if (!el) return;
-
-      const scrollFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const newIsNearBottom = scrollFromBottom < 100;
-      
-      setIsNearBottom(newIsNearBottom);
-      
-      if (!newIsNearBottom) {
-        setUserHasScrolled(true);
-      }
-    };
-
-    const el = containerRef.current;
-    if (el) {
-      el.addEventListener('scroll', handleScroll, { passive: true });
-      return () => el.removeEventListener('scroll', handleScroll);
-    }
-  }, [autoScroll]);
-
-  // Auto-scroll when content updates
-  useEffect(() => {
-    if (!autoScroll || userHasScrolled) return;
-    
-    const el = containerRef.current;
-    if (!el || !isNearBottom) return;
-
-    // Smooth scroll to bottom
-    requestAnimationFrame(() => {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: 'smooth'
-      });
-    });
-  }, [text, blockMatches, autoScroll, userHasScrolled, isNearBottom]);
-
-  // Reset scroll tracking when stream finishes
-  useEffect(() => {
-    if (isStreamFinished) {
-      setUserHasScrolled(false);
-    }
-  }, [isStreamFinished]);
-
-  // Scroll to bottom button
-  const scrollToBottom = useCallback(() => {
-    const el = containerRef.current;
-    if (el) {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: 'smooth'
-      });
-      setUserHasScrolled(false);
-    }
-  }, []);
+  // LLM output now renders inline; outer container handles scrolling.
 
   return (
     <div className={`llm-output-container relative ${className}`}>
       <div 
-        ref={containerRef} 
-        className="llm-ui-output prose prose-gray dark:prose-invert max-w-none break-words overflow-y-auto"
-        style={{ maxHeight: '70vh' }}
+        className="llm-ui-output prose prose-gray dark:prose-invert max-w-none break-words"
       >
+        {/* Theme-aware helpers for LLM produced quiz markup
+            - map `.correct` and `.incorrect` classes to theme tokens
+            - map simple markers like ✅ / ❌ to accessible text colors */}
+        <style>{`
+          .llm-ui-output .correct { color: theme('colors.green.600') || #16a34a; }
+          .llm-ui-output .incorrect { color: theme('colors.red.600') || #dc2626; }
+          .llm-ui-output .badge-correct { display: inline-flex; align-items: center; gap: .5rem; color: #16a34a; }
+          .llm-ui-output .badge-incorrect { display: inline-flex; align-items: center; gap: .5rem; color: #dc2626; }
+        `}</style>
         {blockMatches.map((m: BlockMatch, i: number) => {
           const Component = m.block.component;
           return <Component key={`${m.startIndex}-${i}`} blockMatch={m} />;
@@ -480,23 +424,12 @@ export const LLMOutputRenderer: React.FC<LLMOutputRendererProps> = ({
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
             </div>
-            <span className="text-sm">...</span>
+            <span className="text-sm">AI is typing...</span>
           </div>
         )}
       </div>
 
-      {/* Scroll to bottom button */}
-      {userHasScrolled && !isNearBottom && (
-        <button
-          onClick={scrollToBottom}
-          className="scroll-to-bottom fixed bottom-4 right-4 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-colors z-10"
-          aria-label="Scroll to bottom"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="m6 9 6 6 6-6"/>
-          </svg>
-        </button>
-      )}
+      {/* Scroll control removed; outer layout handles scrolling */}
     </div>
   );
 };

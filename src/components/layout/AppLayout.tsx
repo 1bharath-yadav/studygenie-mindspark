@@ -45,6 +45,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     const menuItems = [
         { id: 'home', label: 'Study Interface', icon: Home, path: '/' },
         { id: 'learning-history', label: 'Learning History', icon: GoHistory, path: '/sessions' },
+        { id: 'analytics', label: 'Analysis', icon: BarChart3, path: '/analytics' },
         { id: 'subjects', label: 'Subjects', icon: BookOpen, path: '/subjects' }
     ];
 

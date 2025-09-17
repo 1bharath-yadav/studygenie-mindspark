@@ -16,6 +16,9 @@ const buttonVariants = cva(
           "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        // Graphite: dark neutral button used for 'Continue' / subtle primary actions
+        graphite:
+          "bg-[#2f2f2f] text-white hover:bg-[#3b3b3b]",
         accent:
           "bg-accent text-accent-foreground hover:bg-accent/90",
         success:
@@ -24,7 +27,9 @@ const buttonVariants = cva(
   // Use transparent hover so the icon/button doesn't flash white on mouseover.
   // Add a neon-blue "sprinkles" active state (thin ring + soft blue glow) when the user presses the button.
   // Uses Tailwind arbitrary values for subtle glow and ring color.
-  ghost: "hover:bg-transparent hover:text-accent-foreground active:ring-2 active:ring-[#00e5ff]/40 active:bg-[#00e5ff]/06 active:shadow-[0_0_12px_rgba(0,229,255,0.12)] sprinkles-active",
+  // Subtle hover background to give feedback without changing icon color.
+  // Remove active ring/shadow so clicking icons doesn't show a bright blue border.
+  ghost: "hover:bg-[rgba(0,0,0,0.06)] dark:hover:bg-[rgba(255,255,255,0.04)] sprinkles-active",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
