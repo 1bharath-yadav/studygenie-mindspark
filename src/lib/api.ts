@@ -161,6 +161,8 @@ export const API_ENDPOINTS = {
         update: '/api/v1/student',
         delete: '/api/v1/student',
         progress: '/api/v1/student/progress', // Assuming sub-endpoint if exists
+        // Save learning activity for a student
+        saveActivity: (studentId: string) => `/api/v1/student/students/${studentId}/learning-activity`,
     },
 
     // LLM services

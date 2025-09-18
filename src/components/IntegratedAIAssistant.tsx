@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import apiClient, { API_BASE_URL } from '@/lib/api';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6,6 +7,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/hooks/use-theme';
 import { useProcessFiles } from '@/hooks/useApi';
+import { allowedTypes, formatFileSize, buildFormForChat, saveActivity, getFileIcon } from './assistant/helpers';
 import {
     Upload,
     File,
@@ -26,12 +28,7 @@ import { VscSettings } from 'react-icons/vsc';
 
 
 
-// Markdown rendering libs
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import rehypeHighlight from 'rehype-highlight';
+
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css';
 import { LLMOutputRenderer } from './llm-ui/LLMOutputRenderer';
@@ -115,29 +112,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
     const isProcessing = processFilesMutation.status === 'pending';
     const [isStreaming, setIsStreaming] = useState(false);
 
-    const allowedTypes = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'image/jpg',
-        'text/plain',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ];
-
-    const getFileIcon = (fileType: string) => {
-        if (fileType.startsWith('image/')) return ImageIcon;
-        if (fileType === 'application/pdf') return FileText;
-        return File;
-    }
-
-    const formatFileSize = (bytes: number): string => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    };
+    // helper utilities imported from ./assistant/helpers
 
     const adjustTextareaHeight = useCallback(() => {
         if (textareaRef.current) {
@@ -661,7 +636,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                 const headers: Record<string,string> = {};
                 if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-                const resp = await fetch('/api/v1/llm/chat-stream', {
+                const resp = await fetch(`${API_BASE_URL}/api/v1/llm/chat-stream`, {
                     method: 'POST',
                     body: form,
                     headers,
@@ -783,7 +758,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
                     const headers: Record<string,string> = {};
                     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-                    const resp = await fetch('/api/v1/llm/stream-structured-content', {
+                    const resp = await fetch(`${API_BASE_URL}/api/v1/llm/stream-structured-content`, {
                         method: 'POST',
                         body: form,
                         headers,
@@ -933,7 +908,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             const headers: Record<string,string> = { 'Content-Type': 'application/json' };
             if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-            const resp = await fetch('/api/v1/analytics/activity', {
+            const resp = await fetch(`${API_BASE_URL}/api/v1/analytics/activity`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(body),
@@ -1237,7 +1212,7 @@ export const IntegratedAIAssistant: React.FC<IntegratedAIAssistantProps> = ({
             <div style={{ position: 'fixed', left: 16, top: 16, zIndex: 60 }}>
                 <div className="bg-background border rounded shadow-lg p-2 space-y-2 w-64">
                     {uploadedFiles.map(f => {
-                        const IconComponent = getFileIcon(f.type);
+                        const IconComponent = getFileIcon(f.type, { ImageIcon, FileText, File });
                         return (
                             <div key={f.id} className="flex items-center justify-start space-x-2">
                                 {f.preview ? (

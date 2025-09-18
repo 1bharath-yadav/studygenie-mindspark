@@ -64,35 +64,39 @@ export const MatchTheFollowing: React.FC<MatchTheFollowingProps> = ({
         });
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (Object.keys(userMatches).length !== data.columnA.length) {
             alert('Please match all items before submitting!');
             return;
         }
+
         setSubmitted(true);
         setShowResults(true);
 
         // Persist learning activity for match-the-following
-        try {
-            const score = calculateScore();
-            const payload = {
-                subject_name: 'Study Material',
-                concept_name: undefined,
-                activity_type: 'match_the_following',
-                correct_answers: Math.round((score / 100) * data.columnA.length),
-                total_questions: data.columnA.length,
-                time_spent: 0,
-                difficulty_level: 'Medium'
-            } as any;
+        const score = calculateScore();
+        const payload = {
+            subject_name: 'Study Material',
+            concept_name: undefined,
+            activity_type: 'match_the_following',
+            correct_answers: Math.round((score / 100) * data.columnA.length),
+            total_questions: data.columnA.length,
+            time_spent: 0,
+            difficulty_level: 'Medium'
+        } as any;
 
-            const studentId = currentStudent?.student_id;
-            if (!studentId) {
-                console.warn('No canonical student_id available; skipping saveLearningActivity');
-            } else {
-                saveActivity.mutate({ studentId, activityData: payload });
-            }
-        } catch (e) {
-            console.warn('Failed to save match activity', e);
+        const studentId = currentStudent?.student_id;
+        if (!studentId) {
+            console.warn('No canonical student_id available; skipping saveLearningActivity');
+            return;
+        }
+
+        try {
+            await saveActivity.mutateAsync({ studentId, activityData: payload });
+        } catch (err) {
+            // Surface server-side errors in the browser console to help debugging
+            // eslint-disable-next-line no-console
+            console.error('Failed to save learning activity', err);
         }
     };
 

@@ -169,7 +169,7 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
   if (quizCompleted) {
     const percentage = Math.round((score / questions.length) * 100);
     return (
-      <Card className="glass-effect border-0 max-w-2xl mx-auto">
+      <Card className="glass-effect border-0 max-w-2xl mx-auto bg-white dark:bg-slate-900 text-black dark:text-white">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <div className="p-4 bg-gradient-primary rounded-full">
@@ -189,7 +189,7 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
             <Progress value={percentage} className="h-3" />
           </div>
 
-          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-3 gap-4 text-center">
             <div className="space-y-1">
               <div className="text-sm text-muted-foreground">Questions</div>
               <div className="text-lg font-semibold">{questions.length}</div>
@@ -216,10 +216,12 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
               const userAns = answers[idx];
               const isCorrect = userAns !== null && userAns === q.correctAnswer;
               return (
-                <div
+                  <div
                   key={idx}
                   className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                    isCorrect ? 'border-green-500 bg-green-50 hover:bg-green-100' : 'border-red-500 bg-red-50 hover:bg-red-100'
+                    isCorrect
+                      ? 'border-green-500 bg-green-50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-800/10'
+                      : 'border-red-500 bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-800/10'
                   }`}
                   onClick={() => setExpanded(expanded === idx ? null : idx)}
                 >
@@ -237,11 +239,11 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
                     {q.options.map((opt, optIdx) => {
                       let optionClass = 'flex items-center p-2 rounded';
                       if (optIdx === q.correctAnswer) {
-                        optionClass += ' bg-green-900/10 border-l-4 border-green-500';
+                        optionClass += ' bg-green-50 dark:bg-green-900/10 border-l-4 border-green-500';
                       } else if (userAns === optIdx) {
-                        optionClass += ' bg-yellow-900/10 border-l-4 border-yellow-500';
+                        optionClass += ' bg-yellow-50 dark:bg-yellow-900/10 border-l-4 border-yellow-500';
                       } else {
-                        optionClass += ' bg-card';
+                        optionClass += ' bg-card dark:bg-card';
                       }
                       return (
                         <div key={optIdx} className={optionClass}>
@@ -279,7 +281,7 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
   const progress = (currentQuestion / questions.length) * 100;
 
   return (
-    <Card className="glass-effect border-0 max-w-2xl mx-auto">
+    <Card className="glass-effect border-0 max-w-2xl mx-auto bg-white dark:bg-slate-900 text-black dark:text-white">
       <CardHeader>
         <div className="flex justify-between items-center">
           <CardTitle className="text-xl">Interactive Quiz</CardTitle>
@@ -311,7 +313,7 @@ export const QuizComponent: React.FC<QuizComponentProps> = ({
                     key={index}
                     variant="outline"
                     onClick={() => handleAnswerSelect(index)}
-                    className="w-full text-left justify-start h-auto p-4 text-wrap"
+                    className="w-full text-left justify-start h-auto p-4 text-wrap dark:text-white"
                   >
                     <span className="mr-3 font-semibold">
                       {String.fromCharCode(65 + index)}.

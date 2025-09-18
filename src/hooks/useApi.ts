@@ -538,12 +538,9 @@ export const useSaveLearningActivity = () => {
                 chapter_name?: string;
             }
         }) =>
-            apiClient.post(`/api/v1/student/students/${studentId}/learning-activity`, activityData),
-        onSuccess: (_, { studentId }) => {
-            // Resolve canonical id for invalidation to match query keys
-            const resolvedId = useResolveStudentId(studentId);
-            const id = resolvedId || studentId;
-            // Invalidate student progress caches
+            apiClient.post(API_ENDPOINTS.student.saveActivity(studentId), activityData),
+        onSuccess: () => {
+            // Invalidate student-related caches so the UI reflects new activity.
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.studentProgress });
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.student });
         },

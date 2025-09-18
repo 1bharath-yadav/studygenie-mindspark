@@ -27,7 +27,15 @@ import {
 } from 'lucide-react';
 import { Mail, Linkedin } from 'lucide-react';
 
+// Local media assets (bundle-resolved by Vite)
+// Prefer modern, smaller WebP images when available. Fall back to the original PNGs if needed.
+import img1 from '../../assets/1.webp';
+import img2 from '../../assets/2.webp';
+import img3 from '../../assets/3.webp';
+import mainGif from '../../assets/main.gif';
+
 const StudyGenieLanding = () => {
+    // ...existing code... (assets imported at top-level)
     const [isLoading, setIsLoading] = useState(true);
     const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
     const [hoveredElement, setHoveredElement] = useState(null);
@@ -43,17 +51,19 @@ const StudyGenieLanding = () => {
     const demoRef = useRef(null);
     const [demoVisible, setDemoVisible] = useState(false);
 
-    // Simulated media assets (replace with your actual assets)
-    // Use GIFs for demos (replace filenames with your GIF assets)
+    // Media assets (imported so the bundler resolves their final URLs)
     const mediaAssets = {
         images: [
-            '/assets/dashboard-preview.jpg',
-            '/assets/ai-tutor-interface.jpg',
-            '/assets/study-analytics.jpg'
+            // @ts-ignore
+            img1,
+            // @ts-ignore
+            img2,
+            // @ts-ignore
+            img3
         ],
         gifs: [
-            '/assets/platform-demo.gif',
-            '/assets/ai-features-showcase.gif'
+            // @ts-ignore
+            mainGif
         ]
     };
 
