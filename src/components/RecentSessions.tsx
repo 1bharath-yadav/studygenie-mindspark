@@ -33,12 +33,12 @@ const RecentSessions: React.FC = () => {
         <div className="space-y-3">
             {openMenu && <div className="fixed inset-0 bg-black/30 z-30" onClick={() => setOpenMenu(null)} />}
             {sessions.map((s: any) => (
-                <div key={s.session_id} className="flex items-center justify-between p-2 border rounded bg-white/5">
-                    <div>
+                <div key={s.session_id} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 border rounded bg-white/5">
+                    <div className="min-w-0">
                         <div className="font-medium text-sm truncate">{s.session_name || 'Untitled Session'}</div>
                         <div className="text-[11px] text-muted-foreground">{new Date(s.updated_at || s.created_at).toLocaleString()}</div>
                     </div>
-                    <div className="flex items-center space-x-2 relative">
+                    <div className="flex items-center space-x-2 relative mt-3 sm:mt-0">
                         <Button
                             variant="graphite"
                             size="sm"

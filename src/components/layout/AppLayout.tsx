@@ -233,7 +233,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             </Button>
 
             {/* Main Content - Full Width; add top padding so fixed controls don't overlap content */}
-            <main className="w-full pt-6">
+            {/* Use larger top padding on small screens so the fixed menu button and controls don't overlap page content. */}
+            <main className="w-full pt-16 sm:pt-6" style={{ paddingTop: 'env(safe-area-inset-top, 16px)' }}>
                 {children}
             </main>
         </div>
